@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  overflow-x: clip;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+@layer base {
+  :root {
+    --bg: #0F0F0F;
+    --surface: #202020;
+    --accent: #5DD62C;
+    --accent-dark: #337418;
+    --text: #F8F8F8;
+    --on-accent: #0F0F0F;
+    --radius: 32px;
+
+    --background: 0 0% 5.9%;
+    --foreground: 0 0% 97.3%;
+    --card: 0 0% 12.5%;
+    --card-foreground: 0 0% 97.3%;
+    --popover: 0 0% 12.5%;
+    --popover-foreground: 0 0% 97.3%;
+    --primary: 103 67% 51%;
+    --primary-foreground: 0 0% 5.9%;
+    --secondary: 103 66% 27%;
+    --secondary-foreground: 0 0% 97.3%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 65%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 103 67% 51%;
+    --safe: 103 67% 51%;
+  }
+}
+
+@layer utilities {
+  .font-display { font-family: "Sora", "Inter", sans-serif; }
+  .app-gradient {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(900px 520px at 15% -10%, hsl(103 67% 51% / 0.12), transparent 65%),
+      radial-gradient(760px 480px at 85% 15%, hsl(103 66% 27% / 0.14), transparent 65%),
+      radial-gradient(800px 800px at 50% 100%, hsl(103 67% 51% / 0.08), transparent 70%);
+  }
+  .panel {
+    background-color: var(--surface);
+    border: 1px solid hsl(103 66% 27% / 0.35);
+    box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px);
+  }
+  .glow-primary { box-shadow: 0 12px 36px -10px hsl(103 67% 51% / 0.45); }
+  .grid-map {
+    background-image:
+      linear-gradient(rgba(248, 248, 248, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(248, 248, 248, 0.05) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+  .marquee-track { animation: marquee 26s linear infinite; }
+  .ping-soft { animation: pingSoft 2.4s ease-out infinite; }
+}
+
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes pingSoft {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #202020; border: 1px solid #337418; border-radius: 99px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
