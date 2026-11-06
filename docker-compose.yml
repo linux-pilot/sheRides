@@ -1,0 +1,54 @@
+services:
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    # No host port: only the server talks to Mongo, over the compose network.
+
+  server:
+    build: ./server
+    env_file: .env
+    ports:
+      - "5050:5000" # host 5050: macOS AirPlay Receiver owns host port 5000
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    depends_on:
+      - mongo
+      - mailpit
+
+  # Local SMTP server for emails (SOS, trip sharing, ride updates). Read them at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
+
+  client:
+    build: ./client
+    ports:
+      - "3000:3000"
+    environment:
+      # Empty = the site reaches the API through its own /api path (proxied by Vite).
+      - VITE_API_URL=${VITE_API_URL:-}
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    depends_on:
+      - server
+
+  # HTTPS for testing on a phone over Wi-Fi (browsers only share location with secure pages): https://<LAN_IP>:3443
+  https:
+    image: caddy:2-alpine
+    ports:
+      - "3443:3443"
+    environment:
+      - LAN_IP=${LAN_IP:-127.0.0.1}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # keeps the same certificate across restarts
+    depends_on:
+      - client
+
+volumes:
+  mongo_data:
+  caddy_data:

@@ -1,0 +1,22 @@
+# Dependencies & builds
+node_modules
+dist
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# User-uploaded KYC documents (private)
+server/uploads
+
+# OS junk
+.DS_Store
+
+# Informal / internal files
+*.jpg
+*.jpeg
+*.png
+CLAUDE.md
+QA_REPORT.md
+.claude/
