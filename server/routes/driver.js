@@ -37,10 +37,13 @@ router.post('/driver/documents', requireRole('driver'), receiveFile, async (req,
 
 router.put('/driver/availability', requireRole('driver'), async (req, res) => {
   const { availability } = validate(req.body, { availability: { required: true, oneOf: ['online', 'offline'] } });
-  // Only approved drivers may go online; checked in the same atomic update.
-  const filter = availability === 'online' ? { _id: req.auth.id, verificationStatus: 'approved' } : { _id: req.auth.id };
+  // Only approved, unblocked drivers may go online; checked in the same atomic update.
+  const filter = availability === 'online' ? { _id: req.auth.id, verificationStatus: 'approved', status: { $ne: 'blocked' } } : { _id: req.auth.id };
   const { matchedCount } = await Driver.updateOne(filter, { availability });
-  if (!matchedCount) throw new HttpError(403, 'Your account must be approved by an admin before you can go online');
+  if (!matchedCount) {
+    const blocked = await Driver.exists({ _id: req.auth.id, status: 'blocked' });
+    throw new HttpError(403, blocked ? 'This account is blocked. Contact support.' : 'Your account must be approved by an admin before you can go online');
+  }
   res.json({ availability });
 });
 

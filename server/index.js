@@ -5,7 +5,7 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import { errorHandler } from './middleware.js';
 import { attachRealtime } from './realtime.js';
-import { handleLive } from './tracking.js';
+import { handleLive, LIVE_TYPES } from './tracking.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
 import driverRoutes from './routes/driver.js';
@@ -33,5 +33,5 @@ await Promise.all(Object.values(mongoose.models).map((m) => m.syncIndexes())); /
 console.log('Mongo connected');
 
 const server = http.createServer(app);
-attachRealtime(server, { origins: ORIGINS, onMessage: handleLive });
+attachRealtime(server, { origins: ORIGINS, onMessage: handleLive, types: LIVE_TYPES });
 server.listen(PORT, () => console.log(`API + WebSocket listening on :${PORT}`));

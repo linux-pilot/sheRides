@@ -107,7 +107,7 @@ router.get('/rides', either, async (req, res) => {
 });
 
 const assertCanDrive = async (id) => {
-  if (!(await Driver.exists({ _id: id, verificationStatus: 'approved', availability: 'online' }))) {
+  if (!(await Driver.exists({ _id: id, verificationStatus: 'approved', availability: 'online', status: { $ne: 'blocked' } }))) {
     throw new HttpError(403, 'Go online (approved drivers only) to see and accept ride requests');
   }
 };
@@ -141,6 +141,10 @@ router.post('/driver/rides/:id/reject', driver, async (req, res) => {
 router.post('/rides/:id/start', driver, async (req, res) => {
   const id = rideId(req);
   const { otp } = validate(req.body, { otp: { required: true, pattern: /^\d{6}$/ } });
+  // A driver rejected or blocked after accepting must not pick the passenger up (admin also cancels such rides).
+  if (!(await Driver.exists({ _id: req.auth.id, verificationStatus: 'approved', status: { $ne: 'blocked' } }))) {
+    throw new HttpError(403, 'Your account is not cleared to drive right now, so this ride cannot start');
+  }
   // Use up one attempt atomically BEFORE comparing, so parallel guesses can never exceed the cap.
   const ride = await Ride.findOneAndUpdate(
     { _id: id, driver: req.auth.id, status: 'driver_assigned', otpAttempts: { $lt: MAX_OTP_ATTEMPTS } },
@@ -182,7 +186,18 @@ router.post('/rides/:id/status', driver, async (req, res) => {
     { new: true },
   );
   if (!ride) throw new HttpError(409, `Ride must be "${from.replace('_', ' ')}" to move to "${status.replace('_', ' ')}"`);
-  const extra = status === 'completed' ? { paid: await settleFare(ride) } : {};
+  let extra = {};
+  if (status === 'completed') {
+    // ponytail: completion, wallet debit, payment record and driver credit are separate writes (standalone Mongo has
+    // no transactions), so a failure between them is logged with the ride id for a manual check; the trip still ends
+    // and both sides are told. Upgrade: run Mongo as a replica set and wrap this in session.withTransaction().
+    try {
+      extra = { paid: await settleFare(ride) };
+    } catch (err) {
+      console.error(`[settleFare] ride ${id} completed but payment needs a manual check`, err);
+      extra = { paid: null };
+    }
+  }
   rideChanged(id, extra);
   res.json(await findRide({ _id: id }, 'driver'));
 });

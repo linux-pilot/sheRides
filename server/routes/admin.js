@@ -1,8 +1,10 @@
 // Admin control room.
 //   GET /admin/drivers?status=          PUT /admin/drivers/:id   { verificationStatus }
 //                                       PUT /admin/drivers/:id/documents/:docId { status: approved|rejected }
+//                                       PUT /admin/drivers/:id/status { status: active|blocked }
 //   GET /admin/users                    PUT /admin/users/:id     { status: active|blocked }
 //   GET /admin/rides                    active rides with live driver location
+//                                       POST /admin/rides/:id/cancel { reason? }  (any active status)
 //   GET /admin/complaints?status=       PUT /admin/complaints/:id { status?, resolutionNotes? }
 //   GET /admin/sos?status=              (resolve via POST /sos/:id/resolve)
 //   GET /admin/reports                  dashboard numbers + rides per month
@@ -12,10 +14,21 @@ import { Complaint, Driver, Rating, Ride, SosAlert, User } from '../models.js';
 import { HttpError, requireRole, validate } from '../middleware.js';
 import { ACTIVE_STATUSES } from '../rideRules.js';
 import { emit } from '../realtime.js';
+import { rideChanged } from '../notify.js';
 
 const router = Router();
 router.use('/admin', requireRole('admin'));
 const objectId = (id, what) => { if (!mongoose.isValidObjectId(id)) throw new HttpError(404, `${what} not found`); return id; };
+
+// A driver who can no longer drive (rejected or blocked) must not pick anyone up: a ride she accepted but has not
+// started is cancelled so the passenger can rebook at once. A ride already under way continues (cancel from Live rides).
+async function releaseAcceptedRide(driverId) {
+  const ride = await Ride.findOneAndUpdate(
+    { driver: driverId, status: 'driver_assigned' },
+    { status: 'cancelled', cancel: { by: 'admin', reason: 'your driver is no longer available', at: new Date() } },
+  );
+  if (ride) rideChanged(ride._id);
+}
 
 router.get('/admin/drivers', async (req, res) => {
   const { status = 'pending' } = validate(req.query, { status: { oneOf: ['pending', 'approved', 'rejected', 'all'] } });
@@ -39,6 +52,7 @@ router.put('/admin/drivers/:id', async (req, res) => {
     if (await Driver.exists({ _id: req.params.id })) throw new HttpError(409, 'Cannot approve: no driving licence uploaded yet');
     throw new HttpError(404, 'Driver not found');
   }
+  if (!approve) await releaseAcceptedRide(driver._id);
   emit('driver', driver._id, 'driver:update', { verificationStatus: driver.verificationStatus });
   res.json(driver);
 });
@@ -60,7 +74,21 @@ router.put('/admin/drivers/:id/documents/:docId', async (req, res) => {
     { new: true },
   );
   if (!driver) throw new HttpError(409, 'The driver just uploaded a new version of this document. Review it again.');
+  if (licenceRejected) await releaseAcceptedRide(driver._id);
   emit('driver', driver._id, 'driver:update', { verificationStatus: driver.verificationStatus });
+  res.json(driver);
+});
+
+// Block or unblock a driver, with the same rule as passengers: a blocked account cannot sign in or take new rides,
+// and an accepted ride not yet started is cancelled; a ride already under way (and SOS) keeps working, for the
+// passenger's safety. Cancel it from Live rides if needed.
+router.put('/admin/drivers/:id/status', async (req, res) => {
+  objectId(req.params.id, 'Driver');
+  const { status } = validate(req.body, { status: { required: true, oneOf: ['active', 'blocked'] } });
+  const driver = await Driver.findByIdAndUpdate(req.params.id, { status, ...(status === 'blocked' ? { availability: 'offline' } : {}) }, { new: true });
+  if (!driver) throw new HttpError(404, 'Driver not found');
+  if (status === 'blocked') await releaseAcceptedRide(driver._id);
+  emit('driver', driver._id, 'driver:update', { verificationStatus: driver.verificationStatus, status: driver.status });
   res.json(driver);
 });
 
@@ -83,6 +111,22 @@ router.get('/admin/rides', async (req, res) => {
   res.json(await Ride.find({ status: { $in: ACTIVE_STATUSES } })
     .populate([{ path: 'driver', select: 'name vehicleModel vehiclePlate location' }, { path: 'user', select: 'name' }])
     .sort({ createdAt: -1 }).limit(200));
+});
+
+// Control-room cancel for a ride nobody else can end (e.g. the driver vanished mid-trip): passengers and drivers
+// cannot cancel after the OTP, and the one-active-ride index would otherwise lock both out of new rides.
+// No fare is charged: payment only happens on `completed`.
+router.post('/admin/rides/:id/cancel', async (req, res) => {
+  objectId(req.params.id, 'Ride');
+  const { reason } = validate(req.body, { reason: { max: 200 } });
+  const ride = await Ride.findOneAndUpdate(
+    { _id: req.params.id, status: { $in: ACTIVE_STATUSES } },
+    { status: 'cancelled', deviated: false, cancel: { by: 'admin', reason, at: new Date() } },
+    { new: true },
+  );
+  if (!ride) throw new HttpError(409, 'This ride is no longer active');
+  rideChanged(ride._id);
+  res.json(ride);
 });
 
 router.get('/admin/complaints', async (req, res) => {

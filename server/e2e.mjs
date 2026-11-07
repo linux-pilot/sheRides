@@ -123,6 +123,17 @@ async function section1() {
   is('passenger creds on driver login → 401', await api('POST', '/auth/login/driver', { body: { email: 'ananya@sherides.test', password: PW } }), 401);
   is('blocked passenger login → 403', await api('POST', '/auth/login/passenger', { body: { email: 'farah@sherides.test', password: PW } }), 403);
   is('login unknown role → 404', await api('POST', '/auth/login/root', { body: { email: 'ananya@sherides.test', password: PW } }), 404);
+
+  // Failed sign-ins are capped per account; a correct password resets the count, a locked account refuses even it
+  const lp = await newPassenger();
+  const wrong = () => api('POST', '/auth/login/passenger', { body: { email: lp.email, password: 'wrong-password' } });
+  for (let i = 0; i < 9; i++) await wrong();
+  is('correct password after 9 failures → 200 (and resets)', await api('POST', '/auth/login/passenger', { body: { email: lp.email, password: PW } }), 200);
+  const tries = await Promise.all(Array.from({ length: 12 }, wrong));
+  check('parallel guesses: 10 checked, the rest refused', tries.filter((t) => t.status === 401).length === 10 && tries.filter((t) => t.status === 429).length === 2, tries.map((t) => t.status));
+  r = await api('POST', '/auth/login/passenger', { body: { email: lp.email, password: PW } });
+  check('locked account refuses even the right password → 429', r.status === 429 && /Too many/.test(r.body.error), r.body);
+  is('lock is per account type: same email on driver login still checked → 401', await api('POST', '/auth/login/driver', { body: { email: lp.email, password: PW } }), 401);
   is('login NoSQL operator in email → 400', await api('POST', '/auth/login/passenger', { body: { email: { $gt: '' }, password: PW } }), 400);
   is('login NoSQL operator in password → 400', await api('POST', '/auth/login/passenger', { body: { email: 'ananya@sherides.test', password: { $ne: 'x' } } }), 400);
   for (const role of ['passenger', 'driver', 'admin', 'support']) {
@@ -466,7 +477,7 @@ function live(token, origin = ORIGIN) {
 }
 async function mailsTo(address, subjectRe = /./) {
   const res = await fetch(`${MAILPIT}/api/v1/messages?limit=500`).then((r) => r.json());
-  return res.messages.filter((m) => m.To.some((t) => t.Address === address) && subjectRe.test(m.Subject));
+  return res.messages.filter((m) => [...(m.To || []), ...(m.Cc || []), ...(m.Bcc || [])].some((t) => t.Address === address) && subjectRe.test(m.Subject));
 }
 async function mailBody(msg) { return (await fetch(`${MAILPIT}/api/v1/message/${msg.ID}`).then((r) => r.json())).Text; }
 
@@ -578,6 +589,7 @@ async function section3() {
   await sleep(800);
   const urgent = await mailsTo(kin[0], /URGENT: SOS/);
   check('contacts get exactly one SOS email despite two taps', urgent.length === 1, urgent.length);
+  check('SOS email hides contacts from each other (Bcc)', urgent[0] && !(urgent[0].To || []).some((t) => kin.includes(t.Address)), urgent[0]?.To);
   const sosText = urgent[0] ? await mailBody(urgent[0]) : '';
   check('SOS email: map link, driver, plate, route', sosText.includes('openstreetmap.org/?mlat=23.03') && sosText.includes(D.plate) && sosText.includes(VAS.address), sosText);
   check('GET /sos/active returns it', (await api('GET', '/sos/active', { token: P.token })).body?._id === sos._id);
@@ -714,6 +726,81 @@ async function section5() {
   is('blocked passenger can still raise SOS (safety first)', r, 201);
   await api('POST', `/sos/${r.body._id}/resolve`, { token: a });
   await api('PUT', `/admin/users/${p.id}`, { token: a, body: { status: 'active' } });
+
+  // Blocked driver: same rule as passengers — offline, no sign-in, no new rides
+  const bd = await newDriver();
+  r = await api('PUT', `/admin/drivers/${bd.id}/status`, { token: a, body: { status: 'blocked' } });
+  check('admin blocks driver → offline', r.status === 200 && r.body.status === 'blocked' && r.body.availability === 'offline', r.body);
+  is('blocked driver cannot see ride requests', await api('GET', '/driver/requests', { token: bd.token }), 403);
+  r = await api('PUT', '/driver/availability', { token: bd.token, body: { availability: 'online' } });
+  check('blocked driver cannot go online', r.status === 403 && /blocked/.test(r.body.error), r.body);
+  is('blocked driver login → 403', await api('POST', '/auth/login/driver', { body: { email: bd.email, password: PW } }), 403);
+  is('admin block driver bad status → 400', await api('PUT', `/admin/drivers/${bd.id}/status`, { token: a, body: { status: 'gone' } }), 400);
+  is('passenger cannot block drivers', await api('PUT', `/admin/drivers/${bd.id}/status`, { token: p.token, body: { status: 'active' } }), 403);
+  is('admin unblocks driver', await api('PUT', `/admin/drivers/${bd.id}/status`, { token: a, body: { status: 'active' } }), 200);
+  is('unblocked driver can go online', await api('PUT', '/driver/availability', { token: bd.token, body: { availability: 'online' } }), 200);
+
+  // Rejecting or blocking a driver cancels a ride she accepted but has not started; she cannot start it either
+  for (const [what, act] of [
+    ['blocking', (d) => api('PUT', `/admin/drivers/${d.id}/status`, { token: a, body: { status: 'blocked' } })],
+    ['rejecting', (d) => api('PUT', `/admin/drivers/${d.id}`, { token: a, body: { verificationStatus: 'rejected' } })],
+  ]) {
+    const rp = await newPassenger(); await topUp(rp);
+    const rd = await newDriver();
+    const acc = (await book(rp)).body;
+    await api('POST', `/driver/rides/${acc._id}/accept`, { token: rd.token });
+    is(`${what} the driver → 200`, await act(rd), 200);
+    r = await api('GET', '/rides', { token: rp.token });
+    check(`${what} the driver cancels her accepted ride`, r.body.some((x) => x._id === acc._id && x.status === 'cancelled' && x.cancel?.by === 'admin'), r.body.map((x) => x.status));
+    r = await api('POST', `/rides/${acc._id}/start`, { token: rd.token, body: { otp: acc.otp } });
+    check(`${what}: she cannot start it`, r.status === 403 || r.status === 409, r);
+    r = await book(rp);
+    is(`${what}: passenger can rebook at once`, r, 201);
+    await api('POST', `/rides/${r.body._id}/cancel`, { token: rp.token, body: {} });
+  }
+  // Rejecting her driving licence (which rejects the account) does the same
+  {
+    const rp = await newPassenger(); await topUp(rp);
+    const rd = await newDriver();
+    const acc = (await book(rp)).body;
+    await api('POST', `/driver/rides/${acc._id}/accept`, { token: rd.token });
+    await api('PUT', `/admin/drivers/${rd.id}/documents/${(await api('GET', '/me', { token: rd.token })).body.user.documents[0]._id}`, { token: a, body: { status: 'rejected' } });
+    r = await api('GET', '/rides', { token: rp.token });
+    check('rejected licence cancels her accepted ride', r.body.some((x) => x._id === acc._id && x.status === 'cancelled'), r.body.map((x) => x.status));
+  }
+
+  // Stuck ride: after the OTP neither side can cancel; the control room can, and nothing is charged
+  const sp = await newPassenger(); await topUp(sp);
+  const sd = await newDriver();
+  const stuck = (await book(sp)).body;
+  await api('POST', `/driver/rides/${stuck._id}/accept`, { token: sd.token });
+  is('OTP starts the stuck ride', await api('POST', `/rides/${stuck._id}/start`, { token: sd.token, body: { otp: stuck.otp } }), 200);
+  is('passenger cannot cancel after OTP', await api('POST', `/rides/${stuck._id}/cancel`, { token: sp.token, body: {} }), 409);
+  is('passenger is locked out of booking meanwhile', await book(sp), 409);
+  const before = (await api('GET', '/wallet', { token: sp.token })).body.balance;
+  is('passenger cannot use admin cancel', await api('POST', `/admin/rides/${stuck._id}/cancel`, { token: sp.token, body: {} }), 403);
+  r = await api('POST', `/admin/rides/${stuck._id}/cancel`, { token: a, body: { reason: 'Driver unreachable' } });
+  check('admin cancels a ride after OTP', r.status === 200 && r.body.status === 'cancelled' && r.body.cancel?.by === 'admin' && r.body.cancel.reason === 'Driver unreachable', r.body);
+  check('admin cancel charges nothing', (await api('GET', '/wallet', { token: sp.token })).body.balance === before);
+  is('admin cancel twice → 409', await api('POST', `/admin/rides/${stuck._id}/cancel`, { token: a, body: {} }), 409);
+  is('admin cancel bad id → 404', await api('POST', '/admin/rides/zzz/cancel', { token: a, body: {} }), 404);
+  r = await book(sp);
+  is('passenger can book again after admin cancel', r, 201);
+  await api('POST', `/rides/${r.body._id}/cancel`, { token: sp.token, body: {} });
+  r = await api('GET', '/rides/active', { token: sd.token });
+  check('driver is free again after admin cancel', r.status === 200 && r.body === null, r.body);
+
+  // Driver SOS: her GPS ping and SOS location arrive together; the per-type flood guard must keep both
+  const gd = await newDriver();
+  const wsAdmin = live(a);
+  const wsDriver = live(gd.token);
+  await Promise.all([wsAdmin.opened, wsDriver.opened]); await sleep(200);
+  const dsos = (await api('POST', '/sos', { token: gd.token, body: {} })).body;
+  wsDriver.send('driver:location', { lat: 23.03, lng: 72.55 });
+  wsDriver.send('sos:location', { lat: 23.031, lng: 72.551 });
+  check('driver SOS location is not dropped next to a GPS ping', !!(await wsAdmin.waitFor('sos:alert', (x) => x.id === dsos._id && x.location?.lat === 23.031)));
+  await api('POST', `/sos/${dsos._id}/resolve`, { token: gd.token });
+  wsAdmin.close(); wsDriver.close();
 
   // Tickets: owner sees own only; support sees all; live event on create/reply
   const q = await newPassenger();

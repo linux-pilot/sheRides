@@ -24,7 +24,8 @@ function originAllowed(req, origins) {
   try { return new URL(origin).host === host; } catch { return false; }
 }
 
-export function attachRealtime(server, { origins, onMessage }) {
+// `types`: the client → server message types onMessage handles; anything else is ignored.
+export function attachRealtime(server, { origins, onMessage, types }) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 8 * 1024 });
 
   wss.on('connection', (ws, req) => {
@@ -37,16 +38,17 @@ export function attachRealtime(server, { origins, onMessage }) {
     sockets.get(k).add(ws);
     ws.auth = { id: claims.sub, role: claims.role };
     ws.alive = true;
-    ws.lastMsg = 0;
+    ws.lastMsg = new Map(); // type → time of the last accepted message
 
     ws.on('pong', () => { ws.alive = true; });
     ws.on('message', async (raw) => {
-      const now = Date.now();
-      if (now - ws.lastMsg < 250) return; // simple flood guard: max ~4 messages/second
-      ws.lastMsg = now;
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
-      if (!msg || typeof msg.type !== 'string') return;
+      if (!msg || !types.includes(msg.type)) return;
+      // Flood guard per message type (max ~4/second each), so a driver's GPS ping never drops her SOS location.
+      const now = Date.now();
+      if (now - (ws.lastMsg.get(msg.type) || 0) < 250) return;
+      ws.lastMsg.set(msg.type, now);
       try {
         await onMessage(ws.auth, msg.type, msg.data);
       } catch (err) {

@@ -61,6 +61,7 @@ export const Driver = model('Driver', new Schema({
   availability: { type: String, enum: ['online', 'offline'], default: 'offline' },
   walletBalance: { type: Number, default: 0, min: 0 },
   rating: { type: Number, default: 0, min: 0, max: 5 },
+  status: { type: String, enum: ['active', 'blocked'], default: 'active' }, // beyond the report: admin block, as for users
   documents: [{ type: { type: String }, path: String, status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' } }],
   location: point,
 }, opts), 'drivers');

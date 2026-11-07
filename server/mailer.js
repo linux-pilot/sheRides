@@ -29,7 +29,8 @@ export async function sendMail(to, subject, text) {
     return;
   }
   try {
-    await transport.sendMail({ from: MAIL_FROM, to: recipients, subject, text });
+    // Several recipients (emergency contacts) go in Bcc so no contact sees the others' addresses.
+    await transport.sendMail({ from: MAIL_FROM, ...(recipients.length > 1 ? { bcc: recipients } : { to: recipients }), subject, text });
   } catch (err) {
     console.error('[mail failed]', subject, err.message);
   }

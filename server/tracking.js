@@ -52,4 +52,5 @@ async function sosLocation(auth, data) {
 }
 
 const HANDLERS = { 'driver:location': driverLocation, 'sos:location': sosLocation };
-export const handleLive = (auth, type, data) => HANDLERS[type]?.(auth, data);
+export const LIVE_TYPES = Object.keys(HANDLERS);
+export const handleLive = (auth, type, data) => HANDLERS[type](auth, data);

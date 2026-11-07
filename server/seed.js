@@ -1,5 +1,6 @@
-// Demo data. Run: docker compose run --rm server node seed.js
+// Demo data. Run: docker compose run --rm server node seed.js --yes
 // WIPES every SheRides collection, then inserts one account per role plus sample drivers.
+// Without --yes it only says which database it would wipe, so a stray run cannot destroy real data.
 // All demo accounts share the password below (test values only, never real credentials).
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
@@ -11,6 +12,12 @@ import { removeUpload, UPLOAD_DIR } from './uploads.js';
 import { distanceKm, fareFor, makeOtp } from './rideRules.js';
 
 const DEMO_PASSWORD = 'SheRides@123';
+
+if (!process.argv.includes('--yes')) {
+  const db = (process.env.MONGO_URL || '').replace(/\/\/[^@/]*@/, '//***@'); // never print credentials
+  console.error(`seed.js WIPES every account, ride and upload in ${db || '(MONGO_URL not set)'} and replaces them with demo data.\nNothing was changed. To go ahead: node seed.js --yes`);
+  process.exit(2);
+}
 
 await mongoose.connect(process.env.MONGO_URL);
 await Promise.all(Object.values(M).filter((m) => m?.deleteMany).map((m) => m.deleteMany({})));

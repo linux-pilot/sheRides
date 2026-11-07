@@ -8,7 +8,7 @@ route-deviation alerts, live trip sharing, night geo-fence and masked chat. Coll
 ```bash
 cp .env.example .env            # then set JWT_SECRET to a long random string (openssl rand -hex 32)
 docker compose up --build       # mongo + server + client + mailpit
-docker compose run --rm server node seed.js   # demo data — WIPES the database and uploads, incl. accounts you created
+docker compose run --rm server node seed.js --yes   # demo data — WIPES the database and uploads, incl. accounts you created
 ```
 
 | What | URL |

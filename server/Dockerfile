@@ -1,7 +1,8 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+# Lockfile + npm ci: every build installs exactly the versions in package-lock.json.
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
 EXPOSE 5000
 CMD ["node", "--watch", "index.js"]

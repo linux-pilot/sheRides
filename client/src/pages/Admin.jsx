@@ -84,6 +84,11 @@ function Drivers() {
   };
   const decide = (d, verificationStatus) => save(d, '', { verificationStatus });
   const reviewDoc = (d, doc, status) => save(d, `/documents/${doc._id}`, { status });
+  const block = (d) => {
+    const status = d.status === 'blocked' ? 'active' : 'blocked';
+    if (status === 'blocked' && !window.confirm(`Block ${d.name}? She goes offline and cannot sign in or take new rides. A ride she accepted but has not started is cancelled; one already under way continues (cancel it from Live rides if needed).`)) return;
+    save(d, '/status', { status });
+  };
 
   return (
     <>
@@ -117,7 +122,7 @@ function Drivers() {
                       ) : <span className="muted small">None uploaded</span>}
                     </td>
                     <td>{new Date(d.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
-                    <td><Badge value={d.verificationStatus} /></td>
+                    <td><Badge value={d.verificationStatus} />{d.status === 'blocked' && <> <Badge value="blocked" /></>}</td>
                     <td>
                       <div className="row">
                         {/* Approving the account approves all its documents; shown again if any document still needs it. */}
@@ -125,6 +130,7 @@ function Drivers() {
                           <button className="btn btn-ok btn-sm" disabled={busyId === d._id} onClick={() => decide(d, 'approved')}>{d.verificationStatus === 'approved' ? 'Approve all docs' : 'Approve'}</button>
                         )}
                         {d.verificationStatus !== 'rejected' && <button className="btn btn-ghost btn-sm" disabled={busyId === d._id} onClick={() => decide(d, 'rejected')}>Reject</button>}
+                        <button className={`btn btn-sm ${d.status === 'blocked' ? 'btn-ok' : 'btn-ghost'}`} disabled={busyId === d._id} onClick={() => block(d)}>{d.status === 'blocked' ? 'Unblock' : 'Block'}</button>
                       </div>
                     </td>
                   </tr>
@@ -180,15 +186,32 @@ function Users() {
 function Rides() {
   const rides = useLiveRides();
   const config = useApi('/safety/config');
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  // For rides nobody else can end (e.g. the driver vanished after the OTP). No fare is charged.
+  const cancel = async (r) => {
+    const reason = window.prompt(`Cancel ${r.user?.name}'s ride? No fare is charged. Reason (optional):`, '');
+    if (reason === null) return;
+    setError('');
+    setBusyId(r._id);
+    try {
+      await request(`/admin/rides/${r._id}/cancel`, { method: 'POST', body: reason.trim() ? { reason: reason.trim() } : {} });
+      rides.reload();
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusyId(null);
+  };
   return (
     <>
       <PageHead title="Live rides" sub={`Red pins are more than ${config.data?.deviationM ?? 500} m off the planned route`} />
       <Card style={{ marginBottom: '1.1rem' }}><MapView height={380} markers={rideMarkers(rides.list)} circle={config.data?.serviceArea} /></Card>
+      {error && <div className="error" role="alert">{error}</div>}
       <Card>
         {!rides.list.length ? <Empty loading={rides.loading} error={rides.error}>No rides in progress.</Empty> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Passenger</th><th>Driver</th><th>Tier</th><th>Route</th><th>Status</th><th>Safety</th></tr></thead>
+              <thead><tr><th>Passenger</th><th>Driver</th><th>Tier</th><th>Route</th><th>Status</th><th>Safety</th><th /></tr></thead>
               <tbody>
                 {rides.list.map((r) => (
                   <tr key={r._id}>
@@ -196,6 +219,7 @@ function Rides() {
                     <td className="small">{r.pickup.address} → {r.drop.address}</td>
                     <td><Badge value={r.status} /></td>
                     <td>{r.deviated ? <Badge value="deviation" label="Off route" /> : <Badge value="active" label="On route" />}</td>
+                    <td><button className="btn btn-ghost btn-sm" disabled={busyId === r._id} onClick={() => cancel(r)}>Cancel</button></td>
                   </tr>
                 ))}
               </tbody>

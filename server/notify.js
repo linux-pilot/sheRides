@@ -19,8 +19,11 @@ const PASSENGER_TEXT = {
   otp_verified: () => 'Safety OTP verified. Your ride has started.',
   en_route: () => 'You are on the way.',
   arrived: (r) => `You have arrived at ${r.drop.address}.`,
-  completed: (r) => `Trip completed. ${inr(r.fare)} ${r.paid === false ? 'could not be debited — please top up your wallet' : 'paid from your wallet'}. Rate your driver in Ride history.`,
-  cancelled: (r) => `Ride cancelled${r.cancel?.by === 'driver' ? ' by the driver. Please book again' : ''}.`,
+  completed: (r) => `Trip completed. ${inr(r.fare)} ${{ false: 'could not be debited — please top up your wallet', null: 'payment is being checked; we will contact you if anything is due' }[r.paid] || 'paid from your wallet'}. Rate your driver in Ride history.`,
+  cancelled: (r) => ({
+    driver: 'Ride cancelled by the driver. Please book again.',
+    admin: `Ride cancelled by the SheRides control room${r.cancel.reason ? ` (${r.cancel.reason})` : ''}. Please book again if you still need a ride.`,
+  })[r.cancel?.by] || 'Ride cancelled.',
 };
 // Trip sharing: these changes are emailed to emergency contacts when the passenger has sharing on.
 const SHARED = ['driver_assigned', 'otp_verified', 'completed', 'cancelled'];
