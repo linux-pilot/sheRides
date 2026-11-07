@@ -16,7 +16,6 @@ docker compose run --rm server node seed.js --yes   # demo data — WIPES the da
 | Website | http://localhost:3000 |
 | API + WebSocket | http://localhost:5050 (`/ws`) |
 | Email inbox (Mailpit, when `SMTP_HOST=mailpit`) | http://localhost:8025 |
-| Website over HTTPS, for a phone on the same Wi-Fi | https://`LAN_IP`:3443 (see below) |
 
 **Email:** `.env.example` sends everything to the local Mailpit inbox. To send real email, set Gmail SMTP in `.env`
 (`SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, your address and a 16-character app password). Demo `@sherides.test`
@@ -27,12 +26,7 @@ emergency contacts get SOS and trip-sharing emails.
 and route-deviation checks all follow the road. If OSRM is unreachable, it falls back to a straight line.
 
 The API container listens on 5000; it is published on host port 5050 because macOS AirPlay Receiver owns 5000. The website reaches the API through
-its own `/api` path (Vite forwards it, WebSocket included), so the site works the same on every address below.
-
-**Test on a phone (live location):** browsers only share location with `https` pages. Set `LAN_IP` in `.env` to
-your computer's Wi-Fi address (macOS: `ipconfig getifaddr en0`), run `docker compose up -d`, then open
-`https://<LAN_IP>:3443` on the phone and accept the certificate warning once. The certificate is self-signed by
-the `https` (Caddy) container and lasts a year.
+its own `/api` path (Vite forwards it, WebSocket included).
 
 ## Demo accounts (password `SheRides@123`)
 
