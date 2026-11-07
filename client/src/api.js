@@ -5,7 +5,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // that device itself, so a localhost API address is pointed at the host this page came from instead.
 const LOCAL = ['localhost', '127.0.0.1', '[::1]'];
 const API = (() => {
-  const url = new URL(import.meta.env.VITE_API_URL || 'http://localhost:5050');
+  // Default (VITE_API_URL empty): the API is this site's own /api path, forwarded by Vite (WebSocket included), so
+  // localhost, a phone on the Wi-Fi, OrbStack and the Caddy HTTPS proxy all work the same, with no CORS and no
+  // https page calling an http API. Below: only when VITE_API_URL points at a separately hosted API.
+  if (!import.meta.env.VITE_API_URL) return `${location.origin}/api`;
+  const url = new URL(import.meta.env.VITE_API_URL);
   if (LOCAL.includes(url.hostname) && !LOCAL.includes(location.hostname)) {
     // OrbStack HTTPS: https://client.<project>.orb.local → API at https://server.<project>.orb.local (an https page
     // may only call an https API).
