@@ -64,6 +64,8 @@ const rideId = (req) => {
 };
 // Each side sees the other's name and the vehicle, never phone numbers (masked calling).
 const POPULATE = [{ path: 'driver', select: 'name vehicleModel vehiclePlate rating location' }, { path: 'user', select: 'name' }];
+// Past rides: no driver location, or a former passenger could keep following a driver after the trip.
+const POPULATE_PAST = [{ path: 'driver', select: 'name vehicleModel vehiclePlate rating' }, { path: 'user', select: 'name' }];
 const findRide = (filter, role) => {
   const q = Ride.findOne(filter).populate(POPULATE);
   return role === 'passenger' ? q.select('+otp') : q;
@@ -100,7 +102,7 @@ router.get('/rides/active', either, async (req, res) => {
 
 router.get('/rides', either, async (req, res) => {
   const rides = await Ride.find({ [ownerField(req.auth.role)]: req.auth.id, status: { $in: ['completed', 'cancelled'] } })
-    .populate(POPULATE).sort({ createdAt: -1 }).limit(50).lean();
+    .populate(POPULATE_PAST).sort({ createdAt: -1 }).limit(50).lean();
   const mine = await Rating.find({ ride: { $in: rides.map((r) => r._id) }, ratedBy: req.auth.role }).lean();
   const byRide = new Map(mine.map((r) => [String(r.ride), r.stars]));
   res.json(rides.map((r) => ({ ...r, myRating: byRide.get(String(r._id)) ?? null })));

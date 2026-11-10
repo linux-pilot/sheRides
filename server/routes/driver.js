@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { Driver, Rating, Ride } from '../models.js';
 import { HttpError, requireRole, validate } from '../middleware.js';
+import { DRIVER_BUSY_STATUSES } from '../rideRules.js';
 import { DOC_TYPES, receiveFile, removeUpload, saveUpload, sendUpload } from '../uploads.js';
 
 const router = Router();
@@ -15,6 +16,12 @@ router.post('/driver/documents', requireRole('driver'), receiveFile, async (req,
   const { type } = validate(req.body, { type: { required: true, oneOf: DOC_TYPES } });
   const driver = await Driver.findById(req.auth.id);
   if (!driver) throw new HttpError(401, 'Account no longer exists');
+  // An approved driver replacing her driving licence is driving on a document nobody has reviewed: she goes offline
+  // and back into the review queue. Not mid-ride, where it would strand a passenger.
+  const recheck = type === 'Driving licence' && driver.verificationStatus === 'approved';
+  if (recheck && (await Ride.exists({ driver: driver._id, status: { $in: DRIVER_BUSY_STATUSES } }))) {
+    throw new HttpError(409, 'Finish your current trip before replacing your driving licence');
+  }
 
   const name = await saveUpload(req.file);
   const old = driver.documents.find((d) => d.type === type);
@@ -24,6 +31,7 @@ router.post('/driver/documents', requireRole('driver'), receiveFile, async (req,
   if (type === 'Driving licence') driver.licensePhoto = name;
   // A rejected driver who re-uploads goes back into the admin review queue.
   if (driver.verificationStatus === 'rejected') driver.verificationStatus = 'pending';
+  if (recheck) Object.assign(driver, { verificationStatus: 'pending', availability: 'offline' });
 
   try {
     await driver.save();

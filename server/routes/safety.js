@@ -45,7 +45,8 @@ router.post('/sos', requireRole('passenger', 'driver'), async (req, res) => {
   // ponytail: police control room call is mocked; upgrade path is Twilio.
   if (passenger) {
     const d = ride?.driver;
-    await sendMail(passenger.emergencyContacts.map((c) => c.email), `URGENT: SOS from ${passenger.name} on SheRides`, [
+    // Not awaited: the reply must not wait on a slow mail server (sendMail never throws).
+    sendMail(passenger.emergencyContacts.map((c) => c.email), `URGENT: SOS from ${passenger.name} on SheRides`, [
       `${passenger.name} has pressed SOS${role === 'driver' ? ` (raised by the driver ${raiser.name})` : ''}.`,
       `Location: ${mapLink(location)}`,
       ride ? `Trip: ${ride.pickup.address} → ${ride.drop.address}` : 'Not on a SheRides trip right now.',
@@ -72,7 +73,7 @@ router.post('/sos/:id/resolve', requireRole('passenger', 'driver', 'admin'), asy
   const passenger = sos.user && (await User.findById(sos.user));
   if (passenger) {
     const bySelf = req.auth.role !== 'admin';
-    await sendMail(passenger.emergencyContacts.map((c) => c.email), `Update: ${passenger.name} is safe`,
+    sendMail(passenger.emergencyContacts.map((c) => c.email), `Update:${passenger.name} is safe`,
       `${passenger.name}'s SOS has been ${bySelf ? 'stood down — she marked herself safe' : 'resolved by the SheRides control room'}.`);
     await notifyUser(passenger._id, bySelf ? 'SOS stood down. Glad you are safe.' : 'Your SOS was resolved by the control room.');
   }

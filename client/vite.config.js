@@ -12,7 +12,8 @@ export default defineConfig({
     // site works unchanged on localhost, a phone on the Wi-Fi or OrbStack HTTPS: one origin,
     // no CORS, and an https page never calls an http API.
     proxy: {
-      '/api': { target: 'http://server:5000', ws: true, rewrite: (path) => path.replace(/^\/api/, '') },
+      // xfwd: pass the visitor's address on (X-Forwarded-For) so the API's sign-in limiter can tell clients apart.
+      '/api': { target: 'http://server:5000', ws: true, xfwd: true, rewrite: (path) => path.replace(/^\/api/, '') },
     },
   },
 });

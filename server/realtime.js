@@ -29,6 +29,9 @@ export function attachRealtime(server, { origins, onMessage, types }) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 8 * 1024 });
 
   wss.on('connection', (ws, req) => {
+    // First, before any early return: `ws` emits 'error' for an oversized or malformed frame (and closes that socket
+    // itself). With no listener that event is an uncaught exception, so one bad frame would take the whole API down.
+    ws.on('error', () => {});
     // ponytail: token travels in the URL (fine on localhost). Upgrade: short-lived ticket or cookie auth.
     const claims = verifyToken(new URL(req.url, 'http://x').searchParams.get('token'));
     if (!claims || !originAllowed(req, origins)) return ws.close(4401, 'Unauthorized');

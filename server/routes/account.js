@@ -46,6 +46,8 @@ router.post('/me/contacts', passenger, async (req, res) => {
     name: { required: true, max: 60 }, relation: { required: true, max: 30 },
     phone: { required: true, type: 'phone' }, email: { required: true, type: 'email', max: 120 },
   });
+  // ponytail: the address is not verified, so trip and SOS emails go to whoever she types (at most MAX_CONTACTS).
+  // Upgrade: email a confirmation link and send trip updates only to confirmed contacts (SOS should still go to all).
   // Capacity check and insert in one atomic update.
   const doc = await User.findOneAndUpdate(
     { _id: req.auth.id, [`emergencyContacts.${MAX_CONTACTS - 1}`]: { $exists: false }, 'emergencyContacts.email': { $ne: c.email } },

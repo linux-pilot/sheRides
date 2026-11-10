@@ -1,5 +1,7 @@
 // Auth, role checks and input validation shared by every route.
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+import { ACCOUNT_MODEL } from './models.js';
 
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) throw new Error('JWT_SECRET missing or too short — set it in .env');
@@ -31,6 +33,22 @@ export function requireRole(...roles) {
     req.auth = { id: claims.sub, role: claims.role };
     next();
   };
+}
+
+// A token lives 7 days, so the account behind it is re-checked on every signed-in request: a deleted account is
+// signed out, and a blocked one is refused everywhere except what safety needs — SOS and finishing a ride already
+// under way. Runs before the routes; requests without a valid token pass through (requireRole answers those).
+const NO_ACCOUNT_CHECK = /^\/(auth\/|tiers$|safety\/config$)/; // public pages may still carry an old token
+const BLOCKED_MAY_USE = /^\/(me|sos|sos\/active|sos\/[a-f0-9]{24}\/resolve|rides\/active|rides\/[a-f0-9]{24}\/(status|cancel|messages))$/i;
+export async function activeAccount(req, res, next) {
+  const [scheme, token] = (req.headers.authorization || '').split(' ');
+  const claims = scheme === 'Bearer' && token ? verifyToken(token) : null;
+  const Model = claims && ACCOUNT_MODEL[claims.role];
+  if (!Model || !mongoose.isValidObjectId(claims.sub) || NO_ACCOUNT_CHECK.test(req.path)) return next();
+  const account = await Model.findById(claims.sub).select('status').lean();
+  if (!account) throw new HttpError(401, 'Account no longer exists');
+  if (account.status === 'blocked' && !BLOCKED_MAY_USE.test(req.path)) throw new HttpError(403, 'This account is blocked. Contact support.');
+  next();
 }
 
 // Tiny schema check at the API boundary: returns cleaned values or throws 400 with every problem.

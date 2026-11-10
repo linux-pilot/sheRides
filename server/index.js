@@ -3,7 +3,7 @@ import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
-import { errorHandler } from './middleware.js';
+import { activeAccount, errorHandler } from './middleware.js';
 import { attachRealtime } from './realtime.js';
 import { handleLive, LIVE_TYPES } from './tracking.js';
 import authRoutes from './routes/auth.js';
@@ -20,10 +20,12 @@ const ORIGINS = CLIENT_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1); // req.ip = the visitor's address as reported by the site's /api proxy (one hop)
 app.use(cors({ origin: ORIGINS }));
 app.use(express.json({ limit: '100kb' }));
 
 app.get('/health', (req, res) => res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' }));
+app.use(activeAccount);
 for (const r of [authRoutes, accountRoutes, driverRoutes, adminRoutes, rideRoutes, safetyRoutes, supportRoutes]) app.use(r);
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use(errorHandler);

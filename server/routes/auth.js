@@ -26,15 +26,19 @@ const driverFields = {
   vehiclePlate: { required: true, max: 15, pattern: /^[A-Za-z0-9 ]+$/ },
 };
 
-// Failed sign-ins are counted per account (role + email): after MAX_FAILS within FAIL_WINDOW_MS the account refuses
-// sign-in for the rest of the window, so passwords cannot be guessed endlessly. Per account, not per IP: behind the
-// site's /api proxy every visitor arrives from the same address. An attempt is counted BEFORE the password check so
-// parallel guesses cannot slip past the cap; a correct password clears the count.
+// Failed sign-ins are counted per account AND client address (role + email + IP): after MAX_FAILS within FAIL_WINDOW_MS
+// that client is refused for the rest of the window, so passwords cannot be guessed endlessly. Keyed on the client too,
+// so a stranger's wrong guesses do not lock the real owner (e.g. the control-room admin) out. The address comes from
+// X-Forwarded-For (set by the site's /api proxy), which a client calling the API directly can fake, so a higher
+// account-wide ceiling still stops guessing from many (or faked) addresses.
+// An attempt is counted BEFORE the password check so parallel guesses cannot slip past the cap; a correct password
+// clears that client's count.
 // ponytail: in memory, one server process. Upgrade: Redis-backed limiter shared by every API instance.
 const MAX_FAILS = 10;
+const MAX_ACCOUNT_FAILS = 100;
 const FAIL_WINDOW_MS = 15 * 60_000;
-const attempts = new Map(); // "role:email" → { n, until }
-function takeAttempt(key) {
+const attempts = new Map(); // "role:email|ip" or "role:email" → { n, until }
+function takeAttempt(key, max) {
   const now = Date.now();
   let a = attempts.get(key);
   if (!a || a.until <= now) {
@@ -42,7 +46,7 @@ function takeAttempt(key) {
     attempts.set(key, a);
     if (attempts.size > 10_000) for (const [k, v] of attempts) if (v.until <= now) attempts.delete(k);
   }
-  if (a.n >= MAX_FAILS) throw new HttpError(429, `Too many failed sign-ins. Try again in ${Math.ceil((a.until - now) / 60_000)} minutes.`);
+  if (a.n >= max) throw new HttpError(429, `Too many failed sign-ins. Try again in ${Math.ceil((a.until - now) / 60_000)} minutes.`);
   a.n += 1;
 }
 
@@ -80,8 +84,9 @@ router.post('/auth/login/:role', async (req, res) => {
     password: { required: true, max: 72 },
   });
 
-  const key = `${role}:${email}`;
-  takeAttempt(key);
+  const key = `${role}:${email}|${req.ip}`;
+  takeAttempt(key, MAX_FAILS);
+  takeAttempt(`${role}:${email}`, MAX_ACCOUNT_FAILS);
   const account = await ACCOUNT_MODEL[role].findOne({ email }).select('+password');
   const ok = await bcrypt.compare(password, account?.password || DUMMY_HASH);
   if (!account || !ok) throw new HttpError(401, 'Wrong email or password');
