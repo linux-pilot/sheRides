@@ -20,7 +20,7 @@ const FEATURES = [
   { icon: 'shield', title: 'Safety OTP', text: 'Your ride only starts when the driver enters the 6-digit OTP you share inside the car.' },
   { icon: 'route', title: 'Route deviation radar', text: 'If the car drifts 500 m off the planned route, you and our control room are alerted instantly.' },
   { icon: 'alert', title: 'One-tap SOS', text: 'Live location, driver and vehicle details go to your trusted contacts and our control room in one tap.' },
-  { icon: 'clock', title: 'Night Guardian', text: 'Between 22:00 and 06:00, rides are geo-fenced and live-monitored by our safety team.' },
+  { icon: 'pin', title: 'Geo-fenced, all day', text: 'Every ride, at any hour, starts and ends inside our safe service area and is live-monitored by our safety team.' },
   { icon: 'chat', title: 'Masked chat & calls', text: 'Talk to your driver without ever sharing your real phone number.' },
 ];
 
@@ -58,10 +58,10 @@ export function Home() {
       <section className="section">
         <h2>Pick your ride</h2>
         <p className="muted">Simple fares in ₹: base fare + per km. No surge pricing.</p>
-        <div className="grid g3" style={{ marginTop: '1.5rem' }}>
+        <div className="grid g2" style={{ marginTop: '1.5rem' }}>
           {tiers.map((t) => (
             <div className="card lift" key={t.id}>
-              <div className="feature-icon" style={{ background: 'var(--pink-soft)', color: 'var(--pink)' }}><Icon name={t.id === 'night' ? 'shield' : 'car'} /></div>
+              <div className="feature-icon" style={{ background: 'var(--pink-soft)', color: 'var(--pink)' }}><Icon name="car" /></div>
               <h3>{t.name}</h3>
               <p className="muted">{t.desc}</p>
               <div className="stat-value">₹{t.base} <span className="muted small">+ ₹{t.perKm}/km</span></div>

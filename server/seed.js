@@ -104,7 +104,7 @@ const past = [
   [ananya, 'vas', 'man', 'lite', 1, 5, 'Very safe and polite. Waited patiently.'],
   [ananya, 'sat', 'nav', 'prime', 3, 5, 'Clean car, smooth drive.'],
   [sneha, 'kal', 'nav', 'lite', 4, 4, 'Good ride, slight delay at pickup.'],
-  [ananya, 'nav', 'kal', 'night', 9, null, null],
+  [ananya, 'nav', 'kal', 'prime', 9, null, null],
   [ananya, 'kal', 'vas', 'lite', 40, 5, null],
   [sneha, 'man', 'sat', 'prime', 75, 5, null],
 ];

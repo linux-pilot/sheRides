@@ -316,7 +316,6 @@ function Sos() {
 
 function Zones() {
   const { data, loading, error } = useApi('/safety/config');
-  const pad = (h) => String(h).padStart(2, '0');
   return (
     <>
       <PageHead title="Safety zones & geo-fence" sub="Rules the server enforces on every booking and trip" />
@@ -325,8 +324,7 @@ function Zones() {
         <Card title="Active rules">
           {data && (
             <ul className="list">
-              <li><div className="stat-icon"><Icon name="shield" /></div><div className="grow"><strong>Night geo-fence</strong><div className="muted small">{pad(data.night.startHour)}:00 – {pad(data.night.endHour)}:00 IST: pickup and drop must be within {data.serviceArea.radiusKm} km of {data.serviceArea.name} centre</div></div><Badge value="active" label="On" /></li>
-              <li><div className="stat-icon"><Icon name="shield" /></div><div className="grow"><strong>Night Guardian tier</strong><div className="muted small">Always geo-fenced, at any hour, and monitored live here</div></div><Badge value="active" label="On" /></li>
+              <li><div className="stat-icon"><Icon name="shield" /></div><div className="grow"><strong>Geo-fence</strong><div className="muted small">Every ride, all day: pickup and drop must be within {data.serviceArea.radiusKm} km of {data.serviceArea.name} centre</div></div><Badge value="active" label="On" /></li>
               <li><div className="stat-icon"><Icon name="route" /></div><div className="grow"><strong>Route deviation</strong><div className="muted small">Alert passenger + control room when the car is more than {data.deviationM} m off the planned route</div></div><Badge value="active" label="On" /></li>
             </ul>
           )}

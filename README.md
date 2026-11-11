@@ -1,7 +1,7 @@
 # SheRides
 
 Women-only ride-hailing web app: verified women passengers ↔ verified women drivers, with SOS, safety OTP,
-route-deviation alerts, live trip sharing, night geo-fence and masked chat. College final-year project.
+route-deviation alerts, live trip sharing, an all-day geo-fence and masked chat. College final-year project.
 
 ## Installation (fresh machine: Windows or macOS Apple Silicon)
 
@@ -173,7 +173,7 @@ docker compose run --rm server node test.js
 ```
 
 Covers role middleware, JWT checks, input validation, upload type detection, fare calculation, OTP,
-route-deviation distance and the night geo-fence.
+route-deviation distance and the geo-fence.
 
 ## Demo-scale stand-ins (`ponytail:` comments in code)
 

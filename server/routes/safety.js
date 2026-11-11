@@ -10,13 +10,13 @@ import { HttpError, requireRole, validate } from '../middleware.js';
 import { emitRole } from '../realtime.js';
 import { sendMail } from '../mailer.js';
 import { mapLink, notifyUser } from '../notify.js';
-import { DEVIATION_M, DRIVER_BUSY_STATUSES, NIGHT, SERVICE_AREA } from '../rideRules.js';
+import { DEVIATION_M, DRIVER_BUSY_STATUSES, SERVICE_AREA } from '../rideRules.js';
 
 const router = Router();
 const POINT = { lat: { type: 'number', range: [-90, 90] }, lng: { type: 'number', range: [-180, 180] } };
 const ownFilter = ({ role, id }) => (role === 'passenger' ? { user: id, raisedBy: 'passenger' } : { driver: id, raisedBy: 'driver' });
 
-router.get('/safety/config', (req, res) => res.json({ deviationM: DEVIATION_M, night: NIGHT, serviceArea: SERVICE_AREA }));
+router.get('/safety/config', (req, res) => res.json({ deviationM: DEVIATION_M, serviceArea: SERVICE_AREA }));
 
 router.post('/sos', requireRole('passenger', 'driver'), async (req, res) => {
   const { role, id } = req.auth;

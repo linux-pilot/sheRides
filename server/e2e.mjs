@@ -75,7 +75,7 @@ async function newDriver({ approve = true, online = true } = {}) {
   }
   return d;
 }
-// Ahmedabad places inside the service area (night geo-fence safe at any hour).
+// Ahmedabad places inside the service area (the geo-fence applies to every ride, all day).
 const NAV = { address: 'CG Road, Navrangpura', lat: 23.0365, lng: 72.5611 };
 const VAS = { address: 'Vastrapur Lake', lat: 23.0396, lng: 72.5293 };
 const book = (p, tier = 'lite', pickup = NAV, drop = VAS) => api('POST', '/rides', { token: p.token, body: { pickup, drop, tier } });
@@ -265,15 +265,25 @@ async function section2() {
   is('estimate missing drop → 400', await api('POST', '/rides/estimate', { token: p.token, body: { pickup: NAV } }), 400);
   is('estimate lat as string → 400', await api('POST', '/rides/estimate', { token: p.token, body: { pickup: { ...NAV, lat: '23.03' }, drop: VAS } }), 400);
   is('estimate address 201 chars → 400', await api('POST', '/rides/estimate', { token: p.token, body: { pickup: { ...NAV, address: 'x'.repeat(201) }, drop: VAS } }), 400);
+  check('tiers are exactly Lite and Prime (Night Guardian retired)', tiers.map((t) => t.id).join() === 'lite,prime', tiers);
+  check('estimate lists exactly those tiers', est.fares.map((f) => f.id).join() === 'lite,prime', est.fares);
   r = await api('POST', '/rides/estimate', { token: p.token, body: { pickup: NAV, drop: NADIAD } });
-  check('estimate outside fence: Night Guardian not allowed', r.status === 200 && r.body.fares.find((f) => f.id === 'night').allowed === false, r.body);
+  check('estimate with drop outside fence → 400 naming the destination', r.status === 400 && /^Destination is outside/.test(r.body.error), r.body);
+  r = await api('POST', '/rides/estimate', { token: p.token, body: { pickup: NADIAD, drop: NAV } });
+  check('estimate with pickup outside fence → 400 naming the pickup', r.status === 400 && /^Pickup is outside/.test(r.body.error), r.body);
+  r = await api('GET', '/safety/config');
+  check('safety config: fence + deviation, no night window', r.body.serviceArea?.radiusKm === 35 && r.body.deviationM === 500 && !('night' in r.body), r.body);
 
   // Booking rules
   r = await book(p);
   is('book with empty wallet → 402', r, 402);
   check('402 says how much to top up', /Top up at least ₹\d+/.test(r.body.error), r.body);
   await topUp(p, 5000);
-  is('book Night Guardian outside fence → 400', await book(p, 'night', NAV, NADIAD), 400);
+  for (const t of ['lite', 'prime']) is(`book ${t} to outside the fence → 400`, await book(p, t, NAV, NADIAD), 400);
+  is('book from outside the fence → 400', await book(p, 'lite', NADIAD, NAV), 400);
+  is('book retired Night Guardian tier → 400', await book(p, 'night'), 400);
+  r = await api('GET', '/rides/active', { token: p.token });
+  check('rejected bookings left no active ride', r.status === 200 && r.body === null, r.body);
   is('book unknown tier → 400', await book(p, 'helicopter'), 400);
   const parallel = await Promise.all(Array.from({ length: 5 }, () => book(p)));
   check('5 parallel bookings → exactly one 201, rest 409', parallel.filter((x) => x.status === 201).length === 1 && parallel.filter((x) => x.status === 409).length === 4, parallel.map((x) => x.status));

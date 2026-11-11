@@ -238,5 +238,6 @@ export async function openFile(name) {
 }
 
 export const fmtDate = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+// `night` is a retired tier: it can no longer be booked, the name is kept only so old ride history still reads correctly.
 export const TIER_NAME = { lite: 'SheRides Lite', prime: 'SheRides Prime', night: 'Night Guardian' };
 export const TICKET_CATEGORIES = ['Payment', 'Ride', 'Safety', 'KYC', 'Lost & found', 'App issue', 'Other'];

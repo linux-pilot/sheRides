@@ -5,7 +5,6 @@ import { randomInt, timingSafeEqual } from 'node:crypto';
 export const TIERS = [
   { id: 'lite', name: 'SheRides Lite', desc: 'Hatchback · 4 seats', base: 40, perKm: 12 },
   { id: 'prime', name: 'SheRides Prime', desc: 'Sedan · extra legroom', base: 60, perKm: 16 },
-  { id: 'night', name: 'Night Guardian', desc: 'Geo-fenced · live monitoring', base: 80, perKm: 20 },
 ];
 export const TIER_IDS = TIERS.map((t) => t.id);
 
@@ -73,12 +72,6 @@ export function distanceToPathM(p, path) {
   return path.length === 1 ? distanceToRouteM(p, { lat: path[0][0], lng: path[0][1] }, { lat: path[0][0], lng: path[0][1] }) : best;
 }
 
-// Night geo-fence: 22:00–06:00 IST (and always for Night Guardian) rides must stay inside the service area.
-export const NIGHT = { startHour: 22, endHour: 6, timeZone: 'Asia/Kolkata' };
+// Geo-fence: every ride, at any hour, must start and end inside the service area.
 export const SERVICE_AREA = { name: 'Ahmedabad', center: { lat: 23.0225, lng: 72.5714 }, radiusKm: 35 };
-export function isNight(date = new Date()) {
-  const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: NIGHT.timeZone }).format(date));
-  return hour >= NIGHT.startHour || hour < NIGHT.endHour;
-}
 export const insideServiceArea = (p) => distanceKm(SERVICE_AREA.center, p) <= SERVICE_AREA.radiusKm;
-export const geofenceApplies = (tier, date = new Date()) => tier === 'night' || isNight(date);

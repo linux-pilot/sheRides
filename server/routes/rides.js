@@ -1,6 +1,6 @@
 // Booking, fare estimate, safety OTP, ride lifecycle, ratings and masked chat.
 //   GET  /tiers                          public
-//   POST /rides/estimate                 passenger    { pickup, drop } → { km, fares }
+//   POST /rides/estimate                 passenger    { pickup, drop } → { km, fares }   (400 outside the geo-fence)
 //   POST /rides                          passenger    book → ride (with OTP)
 //   GET  /rides/active                   passenger|driver
 //   GET  /rides                          passenger|driver   history (completed/cancelled) + my rating
@@ -20,7 +20,7 @@ import { emit } from '../realtime.js';
 import { rideChanged } from '../notify.js';
 import { roadRoute } from '../routing.js';
 import {
-  ACTIVE_STATUSES, CANCELLABLE, distanceKm, DRIVER_BUSY_STATUSES, fareFor, geofenceApplies, insideServiceArea, makeOtp,
+  ACTIVE_STATUSES, CANCELLABLE, distanceKm, DRIVER_BUSY_STATUSES, fareFor, insideServiceArea, makeOtp,
   MAX_KM, MAX_OTP_ATTEMPTS, MIN_KM, NEXT_STATUS, otpMatches, SERVICE_AREA, TIER_IDS, TIERS,
 } from '../rideRules.js';
 
@@ -34,7 +34,7 @@ const PLACE = {
   lat: { required: true, type: 'number', range: [-90, 90] },
   lng: { required: true, type: 'number', range: [-180, 180] },
 };
-// Validates both places, then plans the road route. Fare distance = road km (straight line only as fallback).
+// Validates both places and the geo-fence, then plans the road route. Fare distance = road km (straight line only as fallback).
 async function readTrip(body) {
   const place = (key) => {
     try { return validate(body?.[key], PLACE); } catch (e) { throw new HttpError(400, `${key}: ${e.message}`); }
@@ -44,17 +44,16 @@ async function readTrip(body) {
   const straight = distanceKm(pickup, drop);
   if (straight < MIN_KM) throw new HttpError(400, 'Pickup and destination are too close together');
   if (straight > MAX_KM) throw new HttpError(400, `Trips over ${MAX_KM} km are not supported`);
+  // Geo-fence, all day and for every tier: both ends inside the service area.
+  const outside = [['Pickup', pickup], ['Destination', drop]].filter(([, p]) => !insideServiceArea(p)).map(([name]) => name);
+  if (outside.length) {
+    throw new HttpError(400, `${outside.join(' and ')} ${outside.length > 1 ? 'are' : 'is'} outside the SheRides service area. Rides must start and end within ${SERVICE_AREA.radiusKm} km of ${SERVICE_AREA.name} centre.`);
+  }
   const road = await roadRoute(pickup, drop);
   if (road && road.km > MAX_KM) throw new HttpError(400, `Trips over ${MAX_KM} km are not supported`);
   return road
     ? { pickup, drop, km: road.km, durationMin: road.durationMin, route: road.path }
     : { pickup, drop, km: straight, durationMin: Math.max(1, Math.round((straight / 25) * 60)) }; // ~25 km/h city fallback
-}
-// Night geo-fence (22:00–06:00 IST, and always for Night Guardian): both ends inside the service area.
-function checkGeofence(tier, { pickup, drop }) {
-  if (geofenceApplies(tier) && !(insideServiceArea(pickup) && insideServiceArea(drop))) {
-    throw new HttpError(400, `${tier === 'night' ? 'Night Guardian' : 'Night'} rides must start and end within ${SERVICE_AREA.radiusKm} km of ${SERVICE_AREA.name} centre`);
-  }
 }
 
 const ownerField = (role) => (role === 'passenger' ? 'user' : 'driver');
@@ -77,13 +76,12 @@ router.get('/tiers', (req, res) => res.json(TIERS));
 
 router.post('/rides/estimate', passenger, async (req, res) => {
   const trip = await readTrip(req.body);
-  res.json({ km: trip.km, durationMin: trip.durationMin, route: trip.route || null, fares: TIERS.map((t) => ({ ...t, fare: fareFor(t.id, trip.km), allowed: !geofenceApplies(t.id) || (insideServiceArea(trip.pickup) && insideServiceArea(trip.drop)) })) });
+  res.json({ km: trip.km, durationMin: trip.durationMin, route: trip.route || null, fares: TIERS.map((t) => ({ ...t, fare: fareFor(t.id, trip.km) })) });
 });
 
 router.post('/rides', passenger, async (req, res) => {
   const trip = await readTrip(req.body);
   const { tier } = validate(req.body, { tier: { required: true, oneOf: TIER_IDS } });
-  checkGeofence(tier, trip);
   const fare = fareFor(tier, trip.km);
   const user = await User.findById(req.auth.id);
   if (!user || user.status !== 'active') throw new HttpError(403, 'This account is blocked. Contact support.');

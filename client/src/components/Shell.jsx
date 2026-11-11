@@ -93,7 +93,7 @@ export function Shell({ role, base, menu, sos = false, useCounts = noCounts }) {
               </NavLink>
             );
           })}
-          <Link to="/" onClick={(e) => { e.preventDefault(); signOut(); nav('/', { replace: true }); }}><Icon name="logout" /> Sign out</Link>
+          <Link to="/" onClick={(e) => { e.preventDefault(); if (!window.confirm('Sign out of SheRides?')) return; signOut(); nav('/', { replace: true }); }}><Icon name="logout" /> Sign out</Link>
         </nav>
         {sosButton('sos-btn')}
       </aside>

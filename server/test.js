@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { requireRole, signToken, validate } from './middleware.js';
 import { detectFileType } from './uploads.js';
 import { canonicalPlate } from './models.js';
-import { distanceKm, distanceToPathM, distanceToRouteM, fareFor, geofenceApplies, insideServiceArea, isNight, makeOtp, NEXT_STATUS, otpMatches } from './rideRules.js';
+import { distanceKm, distanceToPathM, distanceToRouteM, fareFor, insideServiceArea, makeOtp, NEXT_STATUS, otpMatches, TIER_IDS } from './rideRules.js';
 
 let passed = 0;
 const test = async (name, fn) => { await fn(); passed++; console.log(`ok - ${name}`); };
@@ -86,8 +86,10 @@ await test('distance: Kalupur Station → CG Road is ~4 km straight line; same p
 await test('fare = base + per-km per tier, rounded to whole rupees', async () => {
   assert.equal(fareFor('lite', 10), 40 + 12 * 10);
   assert.equal(fareFor('prime', 7.1), Math.round(60 + 16 * 7.1));
-  assert.equal(fareFor('night', 0), 80);
+  assert.equal(fareFor('prime', 0), 60);
   assert.throws(() => fareFor('surge', 5));
+  assert.deepEqual(TIER_IDS, ['lite', 'prime']);
+  assert.throws(() => fareFor('night', 5)); // Night Guardian tier was retired
 });
 
 await test('OTP is a 6-digit string and varies', async () => {
@@ -139,21 +141,10 @@ await test('deviation follows the road path, not the straight line', async () =>
   assert.ok(distanceToRouteM(corner, { lat: pa[0], lng: pa[1] }, { lat: pc[0], lng: pc[1] }) > 2000);
 });
 
-await test('night window is 22:00–06:00 IST', async () => {
-  const ist = (h, m = 0) => new Date(Date.UTC(2026, 10, 6, h, m) - (5 * 60 + 30) * 60000); // IST clock time → instant
-  assert.equal(isNight(ist(21, 59)), false);
-  assert.equal(isNight(ist(22, 0)), true);
-  assert.equal(isNight(ist(0, 30)), true);
-  assert.equal(isNight(ist(5, 59)), true);
-  assert.equal(isNight(ist(6, 0)), false);
-  assert.equal(isNight(ist(13, 0)), false);
-});
-
-await test('geo-fence applies at night and always for Night Guardian; Ahmedabad inside, Vadodara outside', async () => {
-  const noon = new Date(Date.UTC(2026, 10, 6, 6, 30)); // 12:00 IST
-  assert.equal(geofenceApplies('lite', noon), false);
-  assert.equal(geofenceApplies('night', noon), true);
+await test('geo-fence: Ahmedabad is inside the service area, Nadiad and Vadodara are outside', async () => {
+  assert.equal(insideServiceArea(A), true);
   assert.equal(insideServiceArea(B), true);
+  assert.equal(insideServiceArea({ lat: 22.6916, lng: 72.8634 }), false); // Nadiad, ~48 km out
   assert.equal(insideServiceArea({ lat: 22.3072, lng: 73.1812 }), false); // Vadodara
 });
 

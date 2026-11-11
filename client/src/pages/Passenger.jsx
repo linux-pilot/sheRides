@@ -144,7 +144,6 @@ export function Dashboard() {
       const [pickup, drop] = await Promise.all([resolvePlace(pickupText.trim(), saved), resolvePlace(dropText.trim(), saved)]);
       const est = await request('/rides/estimate', { method: 'POST', body: { pickup, drop } });
       setTrip({ ...est, pickup, drop });
-      if (!est.fares.find((f) => f.id === tier)?.allowed) setTier(est.fares.find((f) => f.allowed)?.id || 'lite');
     } catch (err) {
       setTrip(null);
       setError(err.message);
@@ -198,9 +197,9 @@ export function Dashboard() {
                 <>
                   <div className="tiers">
                     {trip.fares.map((t) => (
-                      <button type="button" key={t.id} className={`tier ${tier === t.id ? 'active' : ''}`} onClick={() => setTier(t.id)} aria-pressed={tier === t.id} disabled={!t.allowed} title={t.allowed ? '' : 'Outside the night geo-fence'}>
-                        <Icon name={t.id === 'night' ? 'shield' : 'car'} />
-                        <div><strong>{t.name}</strong><div className="muted small">{t.allowed ? t.desc : 'Outside the safe zone'}</div></div>
+                      <button type="button" key={t.id} className={`tier ${tier === t.id ? 'active' : ''}`} onClick={() => setTier(t.id)} aria-pressed={tier === t.id}>
+                        <Icon name="car" />
+                        <div><strong>{t.name}</strong><div className="muted small">{t.desc}</div></div>
                         <span className="tier-price">{inr(t.fare)}</span>
                       </button>
                     ))}
@@ -479,12 +478,11 @@ export function Safety() {
   );
   const cfg = config.data;
   const prefs = user?.preferences || {};
-  const pad = (h) => String(h).padStart(2, '0');
   const safeguards = [
     ['Verified women drivers only', 'KYC documents + admin approval', true],
     ['Safety OTP', 'Ride starts only with your 6-digit code', true],
     ['Route deviation radar', `Alerts you + control room above ${cfg?.deviationM ?? 500} m`, true],
-    ['Night geo-fence', `${pad(cfg?.night.startHour ?? 22)}:00 – ${pad(cfg?.night.endHour ?? 6)}:00 · within ${cfg?.serviceArea.radiusKm ?? 35} km of ${cfg?.serviceArea.name ?? 'the city'}`, true],
+    ['Geo-fence', `Every ride, all day · pickup and drop within ${cfg?.serviceArea.radiusKm ?? 35} km of ${cfg?.serviceArea.name ?? 'the city'}`, true],
     ['Live trip sharing', prefs.shareTrips !== false ? 'Contacts get email updates' : 'Turned off in Settings', prefs.shareTrips !== false],
     ['Masked chat & calls', 'Your number is never shared', true],
   ];
