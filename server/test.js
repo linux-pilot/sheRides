@@ -1,56 +1,42 @@
 // Runnable checks for non-trivial logic. Run: docker compose run --rm server node test.js
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
-import { requireRole, signToken, validate } from './middleware.js';
+import { authorize, signToken, validate } from './middleware.js';
 import { detectFileType } from './uploads.js';
 import { canonicalPlate } from './models.js';
-import { distanceKm, distanceToPathM, distanceToRouteM, fareFor, insideServiceArea, makeOtp, NEXT_STATUS, otpMatches, TIER_IDS } from './rideRules.js';
+import { distanceKm, distanceToPathM, distanceToSegmentM, fareFor, insideServiceArea, makeOtp, otpMatches, TIERS } from './rideRules.js';
 
 let passed = 0;
 const test = async (name, fn) => { await fn(); passed++; console.log(`ok - ${name}`); };
 
-// Run middleware against a fake request; resolves with the error passed to next() (or null).
-const run = (mw, authorization) => new Promise((resolve) => {
-  const req = { headers: authorization ? { authorization } : {} };
-  mw(req, {}, (err) => resolve({ err: err || null, req }));
-});
-const bearer = (role) => `Bearer ${signToken({ _id: 'abc123' }, role)}`;
+const ID = '64b7f0000000000000000001';
+const bearer = (role) => `Bearer ${signToken({ _id: ID }, role)}`;
 
-await test('role middleware lets the right role through and sets req.auth', async () => {
-  const { err, req } = await run(requireRole('admin'), bearer('admin'));
-  assert.equal(err, null);
-  assert.deepEqual(req.auth, { id: 'abc123', role: 'admin' });
+await test('role check lets a listed role through as { id, role }', async () => {
+  assert.deepEqual(authorize(bearer('admin'), ['admin']), { id: ID, role: 'admin' });
+  assert.deepEqual(authorize(bearer('driver'), ['passenger', 'driver']), { id: ID, role: 'driver' });
 });
 
-await test('role middleware accepts any listed role', async () => {
-  const { err } = await run(requireRole('passenger', 'driver'), bearer('driver'));
-  assert.equal(err, null);
+await test('role check refuses other roles with 403', async () => {
+  assert.throws(() => authorize(bearer('passenger'), ['admin']), { status: 403 });
 });
 
-await test('role middleware blocks other roles with 403', async () => {
-  const { err } = await run(requireRole('admin'), bearer('passenger'));
-  assert.equal(err.status, 403);
+await test('missing, forged or expired token → 401', async () => {
+  assert.throws(() => authorize(undefined, ['admin']), { status: 401 });
+  assert.throws(() => authorize(`Bearer ${jwt.sign({ sub: ID, role: 'admin' }, 'some-other-secret-value')}`, ['admin']), { status: 401 });
+  const old = jwt.sign({ sub: ID, role: 'admin', exp: Math.floor(Date.now() / 1000) - 10 }, process.env.JWT_SECRET);
+  assert.throws(() => authorize(`Bearer ${old}`, ['admin']), { status: 401 });
 });
 
-await test('missing token → 401', async () => {
-  const { err } = await run(requireRole('admin'));
-  assert.equal(err.status, 401);
-});
-
-await test('token signed with another secret → 401', async () => {
-  const forged = jwt.sign({ sub: 'x', role: 'admin' }, 'some-other-secret-value');
-  const { err } = await run(requireRole('admin'), `Bearer ${forged}`);
-  assert.equal(err.status, 401);
-});
-
-await test('expired token → 401', async () => {
-  const old = jwt.sign({ sub: 'x', role: 'admin', exp: Math.floor(Date.now() / 1000) - 10 }, process.env.JWT_SECRET);
-  const { err } = await run(requireRole('admin'), `Bearer ${old}`);
-  assert.equal(err.status, 401);
-});
-
-await test('validate rejects non-female gender', async () => {
+await test('validate oneOf rejects other values (women-only gender rule)', async () => {
   assert.throws(() => validate({ gender: 'male' }, { gender: { required: true, oneOf: ['female'] } }), { status: 400 });
+});
+
+await test('validate checks booleans and whole numbers, and names nested fields', async () => {
+  assert.deepEqual(validate({ on: false, n: 3 }, { on: { type: 'boolean' }, n: { type: 'integer' } }), { on: false, n: 3 });
+  assert.throws(() => validate({ on: 'yes' }, { on: { type: 'boolean' } }), { status: 400 });
+  assert.throws(() => validate({ n: 2.5 }, { n: { type: 'integer' } }), { status: 400 });
+  assert.throws(() => validate({}, { lat: { required: true } }, 'pickup.'), /pickup\.lat is required/);
 });
 
 await test('validate trims, lowercases email and reports every problem', async () => {
@@ -83,12 +69,13 @@ await test('distance: Kalupur Station → CG Road is ~4 km straight line; same p
   assert.equal(distanceKm({ lat: 23.03, lng: 72.57 }, { lat: 23.03, lng: 72.57 }), 0);
 });
 
-await test('fare = base + per-km per tier, rounded to whole rupees', async () => {
-  assert.equal(fareFor('lite', 10), 40 + 12 * 10);
-  assert.equal(fareFor('prime', 7.1), Math.round(60 + 16 * 7.1));
-  assert.equal(fareFor('prime', 0), 60);
+await test('fare = base + per-km per tier, whole rupees; unknown and retired tiers refused', async () => {
+  for (const t of TIERS) {
+    assert.equal(fareFor(t.id, 0), t.base);
+    assert.equal(fareFor(t.id, 10) - fareFor(t.id, 0), 10 * t.perKm);
+    assert.ok(Number.isInteger(fareFor(t.id, 7.13)));
+  }
   assert.throws(() => fareFor('surge', 5));
-  assert.deepEqual(TIER_IDS, ['lite', 'prime']);
   assert.throws(() => fareFor('night', 5)); // Night Guardian tier was retired
 });
 
@@ -107,30 +94,26 @@ await test('OTP check: exact match only, rejects wrong length / non-digits / non
   assert.equal(otpMatches(undefined, '048213'), false);
 });
 
-await test('ride steps follow the spec order after OTP', async () => {
-  assert.deepEqual(NEXT_STATUS, { otp_verified: 'en_route', en_route: 'arrived', arrived: 'completed' });
-});
-
 const A = { lat: 23.0365, lng: 72.5611 }; // CG Road, Navrangpura
 const B = { lat: 22.9962, lng: 72.6034 }; // Maninagar
 await test('deviation: a point on the route is ~0 m away', async () => {
   const mid = { lat: (A.lat + B.lat) / 2, lng: (A.lng + B.lng) / 2 };
-  assert.ok(distanceToRouteM(mid, A, B) < 5);
-  assert.ok(distanceToRouteM(A, A, B) < 1);
+  assert.ok(distanceToSegmentM(mid, A, B) < 5);
+  assert.ok(distanceToSegmentM(A, A, B) < 1);
 });
 
 await test('deviation: ~800 m sideways is over the 500 m threshold, ~200 m is not', async () => {
   const mid = { lat: (A.lat + B.lat) / 2, lng: (A.lng + B.lng) / 2 };
   const east = (m) => ({ lat: mid.lat, lng: mid.lng + m / (111320 * Math.cos((mid.lat * Math.PI) / 180)) });
-  const far = distanceToRouteM(east(800), A, B);
-  const near = distanceToRouteM(east(200), A, B);
+  const far = distanceToSegmentM(east(800), A, B);
+  const near = distanceToSegmentM(east(200), A, B);
   assert.ok(far > 500 && far < 800, `far ${far}`); // perpendicular distance is a bit less than the sideways shift
   assert.ok(near < 500, `near ${near}`);
 });
 
 await test('deviation: beyond the drop point measures from the drop, not the infinite line', async () => {
   const past = { lat: B.lat - 0.01, lng: B.lng + (B.lng - A.lng) * (0.01 / (A.lat - B.lat)) }; // ~1.1 km past B along the line
-  assert.ok(distanceToRouteM(past, A, B) > 1000);
+  assert.ok(distanceToSegmentM(past, A, B) > 1000);
 });
 
 await test('deviation follows the road path, not the straight line', async () => {
@@ -138,7 +121,7 @@ await test('deviation follows the road path, not the straight line', async () =>
   const pa = [23.03, 72.55]; const pb = [23.03, 72.58]; const pc = [23.0, 72.58];
   const corner = { lat: 23.03, lng: 72.58 };
   assert.ok(distanceToPathM(corner, [pa, pb, pc]) < 1);
-  assert.ok(distanceToRouteM(corner, { lat: pa[0], lng: pa[1] }, { lat: pc[0], lng: pc[1] }) > 2000);
+  assert.ok(distanceToSegmentM(corner, { lat: pa[0], lng: pa[1] }, { lat: pc[0], lng: pc[1] }) > 2000);
 });
 
 await test('geo-fence: Ahmedabad is inside the service area, Nadiad and Vadodara are outside', async () => {

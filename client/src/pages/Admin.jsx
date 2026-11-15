@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Badge, Bars, Card, Empty, Icon, inr, PageHead, Stat } from '../components/ui.jsx';
+import { Badge, Bars, Card, Empty, fmtDate, Icon, inr, PageHead, Stat } from '../components/ui.jsx';
 import { MapView } from '../components/MapView.jsx';
-import { fmtDate, localEmit, openFile, request, TIER_NAME, useApi, useLive } from '../api.js';
-import { STATE_LABEL } from '../constants.js';
+import { localEmit, openFile, request, useApi, useLive } from '../api.js';
+import { COMPLAINT_STATUS, REVIEW_FILTERS, STATE_LABEL, TIER_NAME } from '../constants.js';
 
 const sosTint = { background: 'rgba(229,56,59,.2)', color: 'var(--sos)' };
 const LIVE = ['ride:update', 'deviation:alert'];
@@ -59,7 +59,6 @@ function Dashboard() {
   );
 }
 
-const FILTERS = ['pending', 'approved', 'rejected', 'all'];
 
 function Drivers() {
   const [filter, setFilter] = useState('pending');
@@ -67,7 +66,6 @@ function Drivers() {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
 
-  // Whole account (path '') or one document (`/documents/<id>`).
   const save = async (d, path, body) => {
     setError('');
     setBusyId(d._id);
@@ -94,7 +92,7 @@ function Drivers() {
     <>
       <PageHead title="Driver approvals" sub="Review KYC documents before drivers can go online" />
       <div className="tabs" role="tablist" style={{ maxWidth: 480 }}>
-        {FILTERS.map((f) => <button key={f} type="button" role="tab" aria-selected={filter === f} className={filter === f ? 'active' : ''} onClick={() => { setFilter(f); setError(''); }}>{f}</button>)}
+        {REVIEW_FILTERS.map((f) => <button key={f} type="button" role="tab" aria-selected={filter === f} className={filter === f ? 'active' : ''} onClick={() => { setFilter(f); setError(''); }}>{f}</button>)}
       </div>
       {(error || loadError) && <div className="error" role="alert">{error || loadError}</div>}
       <Card>
@@ -125,7 +123,6 @@ function Drivers() {
                     <td><Badge value={d.verificationStatus} />{d.status === 'blocked' && <> <Badge value="blocked" /></>}</td>
                     <td>
                       <div className="row">
-                        {/* Approving the account approves all its documents; shown again if any document still needs it. */}
                         {(d.verificationStatus !== 'approved' || d.documents.some((x) => x.status !== 'approved')) && (
                           <button className="btn btn-ok btn-sm" disabled={busyId === d._id} onClick={() => decide(d, 'approved')}>{d.verificationStatus === 'approved' ? 'Approve all docs' : 'Approve'}</button>
                         )}
@@ -188,7 +185,6 @@ function Rides() {
   const config = useApi('/safety/config');
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
-  // For rides nobody else can end (e.g. the driver vanished after the OTP). No fare is charged.
   const cancel = async (r) => {
     const reason = window.prompt(`Cancel ${r.user?.name}'s ride? No fare is charged. Reason (optional):`, '');
     if (reason === null) return;
@@ -204,7 +200,7 @@ function Rides() {
   };
   return (
     <>
-      <PageHead title="Live rides" sub={`Red pins are more than ${config.data?.deviationM ?? 500} m off the planned route`} />
+      <PageHead title="Live rides" sub={config.data ? `Red pins are more than ${config.data.deviationM} m off the planned route` : 'Red pins are off the planned route'} />
       <Card style={{ marginBottom: '1.1rem' }}><MapView height={380} markers={rideMarkers(rides.list)} circle={config.data?.serviceArea} /></Card>
       {error && <div className="error" role="alert">{error}</div>}
       <Card>
@@ -260,7 +256,7 @@ function Complaints() {
                     onBlur={(e) => e.target.value !== (c.resolutionNotes || '') && save(c, { resolutionNotes: e.target.value })} />
                 </div>
                 <select aria-label="Complaint status" value={c.status} className="select-sm" onChange={(e) => save(c, { status: e.target.value })}>
-                  {['open', 'investigating', 'resolved'].map((s) => <option key={s}>{s}</option>)}
+                  {COMPLAINT_STATUS.map((s) => <option key={s}>{s}</option>)}
                 </select>
               </li>
             ))}
@@ -272,7 +268,7 @@ function Complaints() {
 }
 
 function Sos() {
-  const { data, loading, error, reload } = useApi('/admin/sos', { on: ['sos:alert'] });
+  const { data, loading, error, reload } = useApi('/admin/sos', { on: ['sos:alert', 'sos:location'] });
   const [msg, setMsg] = useState('');
   const resolve = async (s) => {
     setMsg('');
@@ -358,7 +354,6 @@ function Reports() {
   );
 }
 
-// Sidebar badges: drivers waiting for approval and active SOS alerts.
 function useAdminCounts() {
   const r = useApi('/admin/reports', { on: ['sos:alert', 'ride:update', 'drivers:changed'] });
   return { pending: r.data?.pendingDrivers || 0, sos: r.data?.sosActive || 0 };

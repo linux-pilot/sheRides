@@ -3,15 +3,14 @@ import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
-import { activeAccount, errorHandler } from './middleware.js';
+import { errorHandler, requireRole } from './middleware.js';
 import { attachRealtime } from './realtime.js';
-import { handleLive, LIVE_TYPES } from './tracking.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
-import driverRoutes from './routes/driver.js';
-import adminRoutes from './routes/admin.js';
-import rideRoutes from './routes/rides.js';
-import safetyRoutes from './routes/safety.js';
+import driverRoutes from './routes/drivers.js';
+import reportRoutes from './routes/reports.js';
+import rideRoutes, { driverLocation } from './routes/rides.js';
+import safetyRoutes, { sosLocation } from './routes/safety.js';
 import supportRoutes from './routes/support.js';
 
 const { MONGO_URL, CLIENT_ORIGIN = 'http://localhost:3000', PORT = 5000 } = process.env;
@@ -25,15 +24,15 @@ app.use(cors({ origin: ORIGINS }));
 app.use(express.json({ limit: '100kb' }));
 
 app.get('/health', (req, res) => res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' }));
-app.use(activeAccount);
-for (const r of [authRoutes, accountRoutes, driverRoutes, adminRoutes, rideRoutes, safetyRoutes, supportRoutes]) app.use(r);
+for (const r of [authRoutes, accountRoutes, driverRoutes, reportRoutes, rideRoutes, safetyRoutes, supportRoutes]) app.use(r);
+app.use('/admin', requireRole('admin')); // unknown admin paths: non-admins get 401/403, never a hint of what exists
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use(errorHandler);
 
 await mongoose.connect(MONGO_URL);
-await Promise.all(Object.values(mongoose.models).map((m) => m.syncIndexes())); // keep unique/partial indexes in step with models.js
+await Promise.all(Object.values(mongoose.models).map((m) => m.syncIndexes())); // unique/partial indexes follow models.js
 console.log('Mongo connected');
 
 const server = http.createServer(app);
-attachRealtime(server, { origins: ORIGINS, onMessage: handleLive, types: LIVE_TYPES });
+attachRealtime(server, { origins: ORIGINS, handlers: { 'driver:location': driverLocation, 'sos:location': sosLocation } });
 server.listen(PORT, () => console.log(`API + WebSocket listening on :${PORT}`));

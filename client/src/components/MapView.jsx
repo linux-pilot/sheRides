@@ -1,14 +1,20 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { CITY } from '../constants.js';
+
+const AHMEDABAD = [23.0225, 72.5714]; // shown until markers, a route or the fence decide the view
+// Pickup and drop pins plus the car (red while off route) for one trip.
+export const tripMarkers = ({ pickup, drop }, car, carLabel) => [
+  { pos: [pickup.lat, pickup.lng], kind: 'pickup', label: `Pickup: ${pickup.address}` },
+  { pos: [drop.lat, drop.lng], kind: 'drop', label: `Drop: ${drop.address}` },
+  ...(car?.lat != null ? [{ pos: [car.lat, car.lng], kind: car.deviated ? 'sos' : 'car', label: carLabel }] : []),
+];
 
 const pinIcon = (kind) => L.divIcon({ className: '', html: `<div class="pin ${kind}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
 
 // Plain Leaflet + OpenStreetMap. markers: [{pos:[lat,lng], kind:'pickup'|'drop'|'car'|'sos', label}]
-// circle: { center: {lat,lng}, radiusKm } draws a geo-fence.
-// `height` is the desktop height; CSS caps it on small screens.
-export function MapView({ center = CITY, zoom = 13, markers = [], route, circle, height = 320 }) {
+// circle: { center: {lat,lng}, radiusKm } draws a geo-fence. `height` is the desktop height; CSS caps it on small screens.
+export function MapView({ center = AHMEDABAD, zoom = 13, markers = [], route, circle, height = 320 }) {
   const el = useRef(null);
   const map = useRef(null);
   const layer = useRef(null);
@@ -22,7 +28,6 @@ export function MapView({ center = CITY, zoom = 13, markers = [], route, circle,
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map.current);
     layer.current = L.layerGroup().addTo(map.current);
-    // Keep tiles correct when the container resizes (rotation, sidebar, breakpoints).
     const ro = new ResizeObserver(() => map.current.invalidateSize());
     ro.observe(el.current);
     return () => { ro.disconnect(); map.current.remove(); };

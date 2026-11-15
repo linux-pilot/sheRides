@@ -5,24 +5,22 @@ import './styles.css';
 import { Shell } from './components/Shell.jsx';
 import { ErrorBoundary } from './components/ui.jsx';
 import { GetStarted, Home, SignIn } from './pages/Public.jsx';
-import { passengerMenu, passengerRoutes, usePassengerCounts } from './pages/Passenger.jsx';
+import { passenger } from './pages/Passenger.jsx';
 import { driver } from './pages/Driver.jsx';
 import { admin } from './pages/Admin.jsx';
 import { support } from './pages/Support.jsx';
-import { getSession, syncLive } from './api.js';
+import { getSession, ROLE_HOME } from './api.js';
 
 const AREAS = [
-  { base: '/app', role: 'passenger', menu: passengerMenu, routes: passengerRoutes, useCounts: usePassengerCounts, sos: true },
-  { base: '/driver', role: 'driver', ...driver, sos: true },
-  { base: '/admin', role: 'admin', ...admin },
-  { base: '/support', role: 'support', ...support },
-];
+  { role: 'passenger', ...passenger },
+  { role: 'driver', ...driver },
+  { role: 'admin', ...admin },
+  { role: 'support', ...support },
+].map((a) => ({ ...a, base: ROLE_HOME[a.role] }));
 
 // UX guard only: the server's role middleware is what actually protects data.
 function RequireRole({ role, children }) {
-  const session = getSession();
-  syncLive(); // make sure the live socket belongs to this session
-  return session?.role === role ? children : <Navigate to="/signin" replace />;
+  return getSession()?.role === role ? children : <Navigate to="/signin" replace />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

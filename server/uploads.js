@@ -1,13 +1,12 @@
 // KYC uploads: type + size checked, stored under random names, never served publicly.
 import { randomBytes } from 'node:crypto';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import multer from 'multer';
 import { HttpError } from './middleware.js';
 
-export const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || 'uploads'); // tests point this elsewhere
-export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-export const DOC_TYPES = ['Driving licence', 'Vehicle RC', 'Aadhaar (KYC)', 'Insurance'];
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || 'uploads');
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 await mkdir(UPLOAD_DIR, { recursive: true });
 
 // Identify the file by its first bytes; the browser-supplied name and MIME type are not trusted.
@@ -21,7 +20,7 @@ export function detectFileType(buf) {
 const CONTENT_TYPE = { jpg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };
 const STORED_NAME = /^[a-f0-9]{32}\.(jpg|png|pdf)$/;
 
-// Single file in field "file", kept in memory (max 2 MB) so it can be checked before touching disk.
+// Single file in field "file", kept in memory so it can be checked before touching disk.
 const parser = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 5 } }).single('file');
 export const receiveFile = (req, res, next) => parser(req, res, (err) => {
   if (err?.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'File must be 2 MB or smaller'));
@@ -29,7 +28,6 @@ export const receiveFile = (req, res, next) => parser(req, res, (err) => {
   next();
 });
 
-// Validates and writes req.file; returns the stored file name.
 export async function saveUpload(file) {
   if (!file) throw new HttpError(400, 'Choose a file to upload');
   const ext = detectFileType(file.buffer);
@@ -41,6 +39,10 @@ export async function saveUpload(file) {
 
 export async function removeUpload(name) {
   if (STORED_NAME.test(name || '')) await unlink(path.join(UPLOAD_DIR, name)).catch(() => {});
+}
+
+export async function clearUploads() {
+  for (const name of await readdir(UPLOAD_DIR)) await removeUpload(name);
 }
 
 // Streams a stored file. Callers must authorise first; the name is re-checked so no path can escape.

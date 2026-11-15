@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Icon, Logo } from '../components/ui.jsx';
-import { login, register, ROLE_HOME, uploadDocument, uploadError, useApi } from '../api.js';
+import { login, register, ROLE_HOME, uploadDocument, useApi } from '../api.js';
+import { KYC_TYPES, PHONE_PATTERN, UPLOAD_ACCEPT, UPLOAD_HINT, uploadError } from '../constants.js';
 
 function PublicNav() {
   return (
@@ -18,14 +19,14 @@ function PublicNav() {
 const FEATURES = [
   { icon: 'users', title: 'Women-only, verified', text: 'Every passenger and driver is a verified woman. Drivers pass KYC and admin approval before their first trip.' },
   { icon: 'shield', title: 'Safety OTP', text: 'Your ride only starts when the driver enters the 6-digit OTP you share inside the car.' },
-  { icon: 'route', title: 'Route deviation radar', text: 'If the car drifts 500 m off the planned route, you and our control room are alerted instantly.' },
+  { icon: 'route', title: 'Route deviation radar', text: 'If the car drifts off the planned route, you and our control room are alerted instantly.' },
   { icon: 'alert', title: 'One-tap SOS', text: 'Live location, driver and vehicle details go to your trusted contacts and our control room in one tap.' },
   { icon: 'pin', title: 'Geo-fenced, all day', text: 'Every ride, at any hour, starts and ends inside our safe service area and is live-monitored by our safety team.' },
   { icon: 'chat', title: 'Masked chat & calls', text: 'Talk to your driver without ever sharing your real phone number.' },
 ];
 
 export function Home() {
-  const tiers = useApi('/tiers').data || []; // prices come from the server's single fare table
+  const tiers = useApi('/tiers').data || [];
   return (
     <>
       <PublicNav />
@@ -126,7 +127,7 @@ export function SignIn() {
       <form onSubmit={submit}>
         <h2>Sign in</h2>
         <p className="muted">Choose your account type.</p>
-        <RoleTabs roles={['passenger', 'driver', 'admin', 'support']} value={role} onChange={(r) => { setRole(r); setError(''); }} />
+        <RoleTabs roles={Object.keys(ROLE_HOME)} value={role} onChange={(r) => { setRole(r); setError(''); }} />
         {error && <div className="error" role="alert">{error}</div>}
         <div className="field"><label htmlFor="email">Email</label><input id="email" name="email" type="email" required autoComplete="email" placeholder="you@example.com" /></div>
         <div className="field"><label htmlFor="pw">Password</label><input id="pw" name="password" type="password" required autoComplete="current-password" /></div>
@@ -168,8 +169,8 @@ export function GetStarted() {
     }
     if (role === 'driver') {
       // Account exists now; if the licence upload fails, the KYC page lets her retry.
-      if (licensePhoto?.size) await uploadDocument('Driving licence', licensePhoto).catch(() => {});
-      nav('/driver/profile');
+      if (licensePhoto?.size) await uploadDocument(KYC_TYPES[0], licensePhoto).catch(() => {});
+      nav(`${ROLE_HOME.driver}/profile`);
     } else nav(ROLE_HOME[role]);
   };
 
@@ -182,7 +183,7 @@ export function GetStarted() {
         <div className="field"><label htmlFor="name">Full name</label><input id="name" name="name" required /></div>
         <div className="grid g2" style={{ gap: '.75rem' }}>
           <div className="field"><label htmlFor="email">Email</label><input id="email" name="email" type="email" required /></div>
-          <div className="field"><label htmlFor="phone">Phone</label><input id="phone" name="phone" type="tel" required pattern="[0-9+ ]{10,15}" /></div>
+          <div className="field"><label htmlFor="phone">Phone</label><input id="phone" name="phone" type="tel" required pattern={PHONE_PATTERN} /></div>
         </div>
         <div className="field">
           <label htmlFor="gender">Gender</label>
@@ -200,7 +201,7 @@ export function GetStarted() {
               <div className="field"><label htmlFor="plate">Vehicle plate</label><input id="plate" name="vehiclePlate" required placeholder="KA 01 AB 1234" /></div>
             </div>
             <div className="field"><label htmlFor="model">Vehicle model</label><input id="model" name="vehicleModel" required /></div>
-            <div className="field"><label htmlFor="licPhoto">Licence photo (JPG/PNG/PDF, max 2 MB)</label><input id="licPhoto" name="licensePhoto" type="file" accept=".jpg,.jpeg,.png,.pdf" required onChange={checkFile} /></div>
+            <div className="field"><label htmlFor="licPhoto">Licence photo ({UPLOAD_HINT})</label><input id="licPhoto" name="licensePhoto" type="file" accept={UPLOAD_ACCEPT} required onChange={checkFile} /></div>
             <p className="muted small">Your documents are reviewed by our admin team before you can go online.</p>
           </>
         )}

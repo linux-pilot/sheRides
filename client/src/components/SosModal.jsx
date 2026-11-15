@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Badge, Icon } from './ui.jsx';
-import { currentPosition, liveSend, request, useApi } from '../api.js';
+import { liveSend, request, useApi } from '../api.js';
+
+// Browser location once, or null after `ms`. The hard timer matters: the geolocation `timeout` does not
+// count time spent on an unanswered permission prompt, and SOS must never wait on that.
+const currentPosition = (ms = 3000) => new Promise((resolve) => {
+  if (!navigator.geolocation) return resolve(null);
+  setTimeout(() => resolve(null), ms);
+  navigator.geolocation.getCurrentPosition(
+    (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+    () => resolve(null),
+    { enableHighAccuracy: true, timeout: ms, maximumAge: 30000 },
+  );
+});
 
 // One tap raises SOS on the server, which emails emergency contacts (location, driver, vehicle) and alerts
 // the admin control room. While open, the browser streams its location every 15 s.

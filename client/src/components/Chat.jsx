@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Empty, Icon, PageHead } from './ui.jsx';
-import { request, useApi, useLive, useOnce } from '../api.js';
+import { request, ROLE_HOME, useApi, useLive, useOnce } from '../api.js';
 
 // Masked chat with the other person on the current trip. Phone numbers are never exchanged.
 // ponytail: "Masked call" is a demo button; upgrade path is Twilio number proxying.
 export function Messages({ role }) {
   const active = useApi('/rides/active', { on: ['ride:update'] });
-  const ride = active.data?.driver ? active.data : null; // chat opens once a driver is assigned
+  const ride = active.data?.driver ? active.data : null;
   const log = useApi(ride ? `/rides/${ride._id}/messages` : null);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
@@ -44,7 +44,7 @@ export function Messages({ role }) {
       {!ride ? (
         <Card>
           <Empty loading={active.loading && !active.data} error={active.error}>Chat opens when a driver is assigned to your ride.</Empty>
-          <Link className="btn btn-primary" style={{ marginTop: '1rem' }} to={role === 'passenger' ? '/app' : '/driver'}>{role === 'passenger' ? 'Book a ride' : 'Find requests'}</Link>
+          <Link className="btn btn-primary" style={{ marginTop: '1rem' }} to={ROLE_HOME[role]}>{role === 'passenger' ? 'Book a ride' : 'Find requests'}</Link>
         </Card>
       ) : (
         <Card title={other} action={<button className="btn btn-ghost btn-sm" onClick={() => alert('Masked calling connects you through a SheRides number. (Demo — not wired to a phone provider.)')}><Icon name="phone" size={16} /> Masked call</button>}>

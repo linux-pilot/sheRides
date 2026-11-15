@@ -12,13 +12,13 @@ const transport = SMTP_HOST
   })
   : null;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // Mailpit (dev inbox) accepts any address, so demo `.test` emails stay visible there.
 const isLocalSmtp = SMTP_HOST === 'mailpit';
 
-// Never throws: a mail problem must not break a ride or an SOS.
+// `to`: one address or a list (already validated at the API boundary). Never throws: a mail problem must not break
+// a ride or an SOS.
 export async function sendMail(to, subject, text) {
-  const valid = [...new Set([].concat(to).filter((a) => typeof a === 'string' && EMAIL.test(a)))];
+  const valid = [...new Set([].concat(to).filter(Boolean))];
   // `.test` is a reserved, undeliverable domain (RFC 2606) used by the demo accounts: log instead of bouncing.
   const recipients = isLocalSmtp ? valid : valid.filter((a) => !/\.test$/i.test(a));
   const skipped = valid.filter((a) => !recipients.includes(a));

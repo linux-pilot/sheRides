@@ -6,7 +6,6 @@ const cache = new Map(); // estimate → book within a minute asks for the same 
 
 const round = (n, d) => Math.round(n * 10 ** d) / 10 ** d;
 
-// Keep every k-th point (always keeping the last) so long routes stay under MAX_POINTS.
 function thin(points) {
   if (points.length <= MAX_POINTS) return points;
   const k = Math.ceil(points.length / MAX_POINTS);

@@ -1,25 +1,36 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Badge, Card, Empty, Icon, inr, PageHead, Stars, StarInput, Stat, Toggle } from '../components/ui.jsx';
-import { MapView } from '../components/MapView.jsx';
+import { Badge, Card, Empty, fmtDate, Icon, inr, PageHead, Stars, StarInput, Stat, Toggle } from '../components/ui.jsx';
+import { MapView, tripMarkers } from '../components/MapView.jsx';
 import { Messages } from '../components/Chat.jsx';
-import { fmtDate, geocode, localEmit, request, setSessionName, TICKET_CATEGORIES, TIER_NAME, useApi, useLive, useOnce } from '../api.js';
-import { RIDE_STATES, SAFETY_TIPS, STATE_LABEL } from '../constants.js';
+import { SupportTickets } from '../components/Tickets.jsx';
+import { localEmit, request, setSessionName, useApi, useLive, useOnce } from '../api.js';
+import { MAX_CONTACTS, MAX_PLACES, OTP_PENDING, PHONE_PATTERN, RIDE_STATES, STATE_LABEL, TIER_NAME } from '../constants.js';
 
 const RIDE_EVENTS = ['ride:update'];
-const pos = (p) => [p.lat, p.lng];
+const SAFETY_TIPS = [
+  'Match the driver photo name and plate number before getting in.',
+  'Share the OTP only once you are inside the car.',
+  'Keep live trip sharing on for late-night rides.',
+  'Sit in the back seat and keep your phone charged.',
+];
 
-// Pins (+ live car) and the planned road route (OSRM) for a ride or a pending search.
-// Falls back to a straight line only if the server could not get a road route.
-function tripMap(pickup, drop, car, path) {
-  const markers = [];
-  if (pickup) markers.push({ pos: pos(pickup), kind: 'pickup', label: `Pickup: ${pickup.address}` });
-  if (drop) markers.push({ pos: pos(drop), kind: 'drop', label: `Drop: ${drop.address}` });
-  if (car?.lat != null) markers.push({ pos: pos(car), kind: car.deviated ? 'sos' : 'car', label: car.deviated ? 'Driver — off route' : 'Driver' });
-  return { markers, route: path?.length > 1 ? path : pickup && drop ? [pos(pickup), pos(drop)] : undefined };
+// Address → coordinates with OpenStreetMap's free Nominatim service (light use only, no key).
+// The typed address is sent to OSM; nothing else about the user is.
+async function geocode(query) {
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&accept-language=en&q=${encodeURIComponent(query)}`;
+  let hits;
+  try {
+    hits = await fetch(url).then((r) => r.json());
+  } catch {
+    throw new Error('Address lookup is unavailable right now. Try again.');
+  }
+  if (!hits?.length) throw new Error(`Couldn't find "${query}". Try adding the area or city.`);
+  return { address: query, lat: Number(hits[0].lat), lng: Number(hits[0].lon) };
 }
 
-// Active ride + the driver's live position (WebSocket `driver:location`).
+const driverLabel = (car) => (car?.deviated ? 'Driver — off route' : 'Driver');
+
 function useActiveRide() {
   const active = useApi('/rides/active', { on: RIDE_EVENTS });
   const [car, setCar] = useState(null);
@@ -51,7 +62,7 @@ function LiveRideCard({ ride, onChange }) {
     );
   }
   const d = ride.driver;
-  const showOtp = ['requested', 'driver_assigned'].includes(ride.status);
+  const showOtp = OTP_PENDING.includes(ride.status);
   return (
     <Card title="Live ride status" action={<Badge value={ride.deviated ? 'deviation' : ride.status} label={ride.deviated ? 'Off route' : STATE_LABEL[ride.status]} />}>
       <div className="row" style={{ marginBottom: '1rem' }}>
@@ -76,7 +87,6 @@ function LiveRideCard({ ride, onChange }) {
   );
 }
 
-// Typed text → saved place (has coordinates) or an OpenStreetMap lookup.
 const resolvePlace = async (text, saved) => {
   const hit = saved.find((a) => a.address.toLowerCase() === text.toLowerCase() || a.label.toLowerCase() === text.toLowerCase());
   return hit ? { address: hit.address, lat: hit.lat, lng: hit.lng } : geocode(text);
@@ -120,7 +130,7 @@ function PlaceInput({ id, value, onChange, saved, ...props }) {
   );
 }
 
-export function Dashboard() {
+function Dashboard() {
   const meApi = useApi('/me', { on: RIDE_EVENTS });
   const stats = useApi('/me/stats', { on: RIDE_EVENTS });
   const history = useApi('/rides', { on: RIDE_EVENTS });
@@ -130,11 +140,13 @@ export function Dashboard() {
 
   const [pickupText, setPickupText] = useState('');
   const [dropText, setDropText] = useState('');
-  const [trip, setTrip] = useState(null); // { pickup, drop, km, fares }
+  const [trip, setTrip] = useState(null); // { pickup, drop, km, durationMin, route, fares }
   const [tier, setTier] = useState('lite');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [needsTopUp, setNeedsTopUp] = useState(false);
   const [once] = useOnce();
+  const fail = (err) => { setError(err.message); setNeedsTopUp(err.status === 402); };
 
   const search = (e) => { e.preventDefault(); once(doSearch); };
   const doSearch = async () => {
@@ -146,7 +158,7 @@ export function Dashboard() {
       setTrip({ ...est, pickup, drop });
     } catch (err) {
       setTrip(null);
-      setError(err.message);
+      fail(err);
     }
     setBusy('');
   };
@@ -163,13 +175,13 @@ export function Dashboard() {
       reload();
       meApi.reload();
     } catch (err) {
-      setError(err.message);
+      fail(err);
     }
     setBusy('');
   };
 
   const edit = (setter) => (text) => { setter(text); setTrip(null); };
-  const shown = ride ? tripMap(ride.pickup, ride.drop, car, ride.route) : trip ? tripMap(trip.pickup, trip.drop, null, trip.route) : { markers: [] };
+  const shown = ride || trip;
   const s = stats.data;
 
   return (
@@ -190,7 +202,7 @@ export function Dashboard() {
             </>
           ) : (
             <form onSubmit={search}>
-              {error && <div className="error" role="alert">{error}{/wallet/i.test(error) && <> <Link to="/app/wallet">Top up</Link></>}</div>}
+              {error && <div className="error" role="alert">{error}{needsTopUp && <> <Link to="/app/wallet">Top up</Link></>}</div>}
               <div className="field"><label htmlFor="pickup">Pickup</label><PlaceInput id="pickup" saved={saved} value={pickupText} onChange={edit(setPickupText)} placeholder="e.g. CG Road, Navrangpura, Ahmedabad" required maxLength={200} /></div>
               <div className="field"><label htmlFor="drop">Destination</label><PlaceInput id="drop" saved={saved} value={dropText} onChange={edit(setDropText)} placeholder="Where to?" required maxLength={200} /></div>
               {trip && (
@@ -214,7 +226,7 @@ export function Dashboard() {
           )}
         </Card>
         <Card title="Map" className="span2" action={ride && <Badge value={ride.status} />}>
-          <MapView height={420} markers={shown.markers} route={shown.route} />
+          <MapView height={420} markers={shown ? tripMarkers(shown, ride && car, driverLabel(car)) : []} route={shown?.route} />
         </Card>
       </div>
       <div className="grid g2" style={{ marginTop: '1.1rem' }}>
@@ -237,12 +249,12 @@ export function Dashboard() {
   );
 }
 
-export function LiveTracking() {
+function LiveTracking() {
   const { ride, car, loading, error, reload } = useActiveRide();
   const me = useApi('/me');
   const config = useApi('/safety/config');
   const user = me.data?.user;
-  const sharing = user?.preferences?.shareTrips !== false;
+  const sharing = !!user?.preferences.shareTrips;
   const contacts = user?.emergencyContacts?.length || 0;
 
   const setSharing = async (on) => {
@@ -262,7 +274,6 @@ export function LiveTracking() {
     );
   }
   const current = RIDE_STATES.indexOf(ride.status);
-  const { markers, route } = tripMap(ride.pickup, ride.drop, car, ride.route);
   const deviated = car?.deviated ?? ride.deviated;
   return (
     <>
@@ -274,7 +285,7 @@ export function LiveTracking() {
         </div>
       )}
       <div className="grid g3">
-        <Card className="span2"><MapView height={480} markers={markers} route={route} /></Card>
+        <Card className="span2"><MapView height={480} markers={tripMarkers(ride, car, driverLabel(car))} route={ride.route} /></Card>
         <div className="grid">
           <LiveRideCard ride={ride} onChange={reload} />
           <Card title="Trip timeline">
@@ -294,7 +305,7 @@ export function LiveTracking() {
           </div>
           <div className="row">
             <div className="stat-icon" style={deviated ? { color: 'var(--sos)' } : undefined}><Icon name="route" /></div>
-            <div><strong>Deviation radar</strong><div className="muted small">{deviated ? 'Off route — alert sent' : `On · alerts if > ${config.data?.deviationM ?? 500} m off route`}</div></div>
+            <div><strong>Deviation radar</strong><div className="muted small">{deviated ? 'Off route — alert sent' : `On${config.data ? ` · alerts if > ${config.data.deviationM} m off route` : ''}`}</div></div>
           </div>
           <div className="row">
             <div className="stat-icon"><Icon name={ride.startTime ? 'check' : 'shield'} /></div>
@@ -306,7 +317,6 @@ export function LiveTracking() {
   );
 }
 
-// Rate a completed ride or report a problem with it.
 function RideFeedback({ ride, onDone, onClose }) {
   const [stars, setStars] = useState(0);
   const [feedback, setFeedback] = useState('');
@@ -360,7 +370,7 @@ function RideFeedback({ ride, onDone, onClose }) {
   );
 }
 
-export function History() {
+function History() {
   const { data, loading, error, reload } = useApi('/rides', { on: RIDE_EVENTS });
   const [sel, setSel] = useState(null);
   const selected = data?.find((r) => r._id === sel);
@@ -392,7 +402,7 @@ export function History() {
   );
 }
 
-export function Wallet() {
+function Wallet() {
   const { data, loading, error, setData } = useApi('/wallet', { on: RIDE_EVENTS });
   const [amount, setAmount] = useState(500);
   const [msg, setMsg] = useState('');
@@ -450,7 +460,7 @@ export function Wallet() {
   );
 }
 
-export function Safety() {
+function Safety() {
   const me = useApi('/me');
   const config = useApi('/safety/config');
   const user = me.data?.user;
@@ -477,20 +487,20 @@ export function Safety() {
     <input aria-label={props.placeholder} required value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} {...props} />
   );
   const cfg = config.data;
-  const prefs = user?.preferences || {};
+  const sharing = !!user?.preferences.shareTrips;
   const safeguards = [
     ['Verified women drivers only', 'KYC documents + admin approval', true],
     ['Safety OTP', 'Ride starts only with your 6-digit code', true],
-    ['Route deviation radar', `Alerts you + control room above ${cfg?.deviationM ?? 500} m`, true],
-    ['Geo-fence', `Every ride, all day · pickup and drop within ${cfg?.serviceArea.radiusKm ?? 35} km of ${cfg?.serviceArea.name ?? 'the city'}`, true],
-    ['Live trip sharing', prefs.shareTrips !== false ? 'Contacts get email updates' : 'Turned off in Settings', prefs.shareTrips !== false],
+    ['Route deviation radar', cfg ? `Alerts you + control room above ${cfg.deviationM} m` : 'Alerts you + control room', true],
+    ['Geo-fence', cfg ? `Every ride, all day · pickup and drop within ${cfg.serviceArea.radiusKm} km of ${cfg.serviceArea.name}` : 'Every ride, all day', true],
+    ['Live trip sharing', sharing ? 'Contacts get email updates' : 'Turned off in Settings', sharing],
     ['Masked chat & calls', 'Your number is never shared', true],
   ];
   return (
     <>
       <PageHead title="Safety centre" sub="People and protections that travel with you" />
       <div className="grid g2">
-        <Card title="Emergency contacts" action={<span className="muted small">{list.length}/5</span>}>
+        <Card title="Emergency contacts" action={<span className="muted small">{list.length}/{MAX_CONTACTS}</span>}>
           {error && <div className="error" role="alert">{error}</div>}
           {!list.length ? <Empty loading={me.loading} error={me.error}>Add people who should hear about your trips and SOS alerts.</Empty> : (
             <ul className="list">
@@ -503,13 +513,12 @@ export function Safety() {
               ))}
             </ul>
           )}
-          {/* SOS and trip updates reach contacts by email (SMTP); phone is kept for reference. */}
           <form onSubmit={add} className="grid g2" style={{ gap: '.5rem', marginTop: '1rem' }}>
             {field('name', { placeholder: 'Name', maxLength: 60 })}
             {field('relation', { placeholder: 'Relation', maxLength: 30 })}
-            {field('phone', { placeholder: 'Phone', type: 'tel', pattern: '[0-9+ ]{10,15}' })}
+            {field('phone', { placeholder: 'Phone', type: 'tel', pattern: PHONE_PATTERN })}
             {field('email', { placeholder: 'Email', type: 'email', maxLength: 120 })}
-            <button className="btn btn-primary" style={{ gridColumn: '1 / -1' }} disabled={adding || list.length >= 5}><Icon name="plus" /> Add contact</button>
+            <button className="btn btn-primary" style={{ gridColumn: '1 / -1' }} disabled={adding || list.length >= MAX_CONTACTS}><Icon name="plus" /> Add contact</button>
           </form>
         </Card>
         <div className="grid">
@@ -529,7 +538,7 @@ export function Safety() {
   );
 }
 
-export function Notifications() {
+function Notifications() {
   const { data, loading, error, setData } = useApi('/notifications', { on: ['notification'] });
   const markRead = async () => {
     try {
@@ -562,7 +571,7 @@ export function Notifications() {
   );
 }
 
-export function Profile() {
+function Profile() {
   const me = useApi('/me');
   const user = me.data?.user;
   const [msg, setMsg] = useState({ error: '', ok: '' });
@@ -613,11 +622,11 @@ export function Profile() {
             <div className="row" style={{ marginBottom: '1rem' }}><div className="avatar" style={{ width: 64, height: 64, fontSize: '1.5rem' }}>{user.name[0]}</div><Badge value="approved" label="Verified woman rider" /></div>
             <div className="field"><label htmlFor="pn">Name</label><input id="pn" name="name" defaultValue={user.name} required maxLength={80} /></div>
             <div className="field"><label htmlFor="pe">Email</label><input id="pe" type="email" value={user.email} readOnly disabled /></div>
-            <div className="field"><label htmlFor="pp">Phone</label><input id="pp" name="phone" type="tel" defaultValue={user.phone} required pattern="[0-9+ ]{10,15}" /></div>
+            <div className="field"><label htmlFor="pp">Phone</label><input id="pp" name="phone" type="tel" defaultValue={user.phone} required pattern={PHONE_PATTERN} /></div>
             <button className="btn btn-primary" disabled={busy}>Save changes</button>
           </form>
         </Card>
-        <Card title="Saved places" action={<span className="muted small">{user.savedAddresses.length}/10</span>}>
+        <Card title="Saved places" action={<span className="muted small">{user.savedAddresses.length}/{MAX_PLACES}</span>}>
           {!user.savedAddresses.length ? <p className="muted">Save places like Home and Work to book faster.</p> : (
             <ul className="list">
               {user.savedAddresses.map((a) => (
@@ -632,7 +641,7 @@ export function Profile() {
           <form onSubmit={addPlace} className="grid g2" style={{ gap: '.5rem', marginTop: '1rem' }}>
             <input aria-label="Label" placeholder="Label (e.g. Gym)" required maxLength={30} value={place.label} onChange={(e) => setPlace({ ...place, label: e.target.value })} />
             <input aria-label="Address" placeholder="Address" required maxLength={200} value={place.address} onChange={(e) => setPlace({ ...place, address: e.target.value })} />
-            <button className="btn btn-primary" style={{ gridColumn: '1 / -1' }} disabled={busy || user.savedAddresses.length >= 10}><Icon name="plus" /> Save place</button>
+            <button className="btn btn-primary" style={{ gridColumn: '1 / -1' }} disabled={busy || user.savedAddresses.length >= MAX_PLACES}><Icon name="plus" /> Save place</button>
           </form>
         </Card>
       </div>
@@ -640,9 +649,9 @@ export function Profile() {
   );
 }
 
-export function Settings() {
+function Settings() {
   const me = useApi('/me');
-  const prefs = me.data?.user?.preferences || {};
+  const prefs = me.data?.user.preferences;
   const [error, setError] = useState('');
   const set = async (key, value) => {
     setError('');
@@ -664,7 +673,7 @@ export function Settings() {
         {!me.data ? <Empty loading={me.loading} error={me.error} /> : (
           <ul className="list">
             {items.map(([k, label, desc]) => (
-              <li key={k}><div className="grow"><strong>{label}</strong><div className="muted small">{desc}</div></div><Toggle on={prefs[k] !== false} onChange={(v) => set(k, v)} label={label} /></li>
+              <li key={k}><div className="grow"><strong>{label}</strong><div className="muted small">{desc}</div></div><Toggle on={prefs[k]} onChange={(v) => set(k, v)} label={label} /></li>
             ))}
           </ul>
         )}
@@ -673,76 +682,28 @@ export function Settings() {
   );
 }
 
-// Tickets for passengers and drivers (same page, same API).
-export function SupportTickets() {
-  const { data, loading, error, setData } = useApi('/tickets', { on: ['notification', 'ticket:update'] });
-  const blank = { subject: '', category: 'Ride', message: '' };
-  const [form, setForm] = useState(blank);
-  const [msg, setMsg] = useState('');
-  const [once, sending] = useOnce();
-  const submit = (e) => {
-    e.preventDefault();
-    once(async () => {
-      setMsg('');
-      try {
-        const t = await request('/tickets', { method: 'POST', body: form });
-        setData((list) => (list?.some((x) => x._id === t._id) ? list : [t, ...(list || [])]));
-        setForm(blank);
-      } catch (err) {
-        setMsg(err.message);
-      }
-    });
-  };
-  return (
-    <>
-      <PageHead title="Help & support" sub="Our support team usually replies within a few hours" />
-      <div className="grid g2">
-        <Card title="Raise a ticket">
-          <form onSubmit={submit}>
-            {msg && <div className="error" role="alert">{msg}</div>}
-            <div className="field"><label htmlFor="ts">Subject</label><input id="ts" required maxLength={120} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></div>
-            <div className="field"><label htmlFor="tc">Category</label><select id="tc" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{TICKET_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></div>
-            <div className="field"><label htmlFor="tm">Message</label><textarea id="tm" rows={4} required maxLength={1000} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} /></div>
-            <button className="btn btn-primary" disabled={sending}>{sending ? 'Submitting…' : 'Submit'}</button>
-          </form>
-        </Card>
-        <Card title="My tickets">
-          {!data?.length ? <Empty loading={loading} error={error}>No tickets yet.</Empty> : (
-            <ul className="list">
-              {data.map((t) => (
-                <li key={t._id}>
-                  <div className="grow"><strong>{t.subject}</strong><div className="muted small">{t.category} · {fmtDate(t.createdAt)}</div>{t.response && <div className="small" style={{ marginTop: '.3rem' }}><span className="pink">Support:</span> {t.response}</div>}</div>
-                  <Badge value={t.status} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-    </>
-  );
-}
-
-// Unread notifications badge for the sidebar.
-export function usePassengerCounts() {
+function usePassengerCounts() {
   const n = useApi('/notifications', { on: ['notification', 'notifications:read'] });
   return { unread: n.data?.filter((x) => !x.isRead).length || 0 };
 }
 
-export const passengerMenu = [
-  { to: '', label: 'Dashboard', icon: 'home' },
-  { to: 'tracking', label: 'Live tracking', icon: 'pin' },
-  { to: 'history', label: 'Ride history', icon: 'clock' },
-  { to: 'messages', label: 'Messages', icon: 'chat' },
-  { to: 'wallet', label: 'Wallet & payments', icon: 'wallet' },
-  { to: 'safety', label: 'Safety centre', icon: 'shield' },
-  { to: 'notifications', label: 'Notifications', icon: 'bell', count: 'unread' },
-  { to: 'support', label: 'Help & support', icon: 'ticket' },
-  { to: 'profile', label: 'Profile', icon: 'user' },
-  { to: 'settings', label: 'Settings', icon: 'gear' },
-];
-
-export const passengerRoutes = [
-  ['', Dashboard], ['tracking', LiveTracking], ['history', History], ['messages', () => <Messages role="passenger" />],
-  ['wallet', Wallet], ['safety', Safety], ['notifications', Notifications], ['support', SupportTickets], ['profile', Profile], ['settings', Settings],
-];
+export const passenger = {
+  sos: true,
+  useCounts: usePassengerCounts,
+  menu: [
+    { to: '', label: 'Dashboard', icon: 'home' },
+    { to: 'tracking', label: 'Live tracking', icon: 'pin' },
+    { to: 'history', label: 'Ride history', icon: 'clock' },
+    { to: 'messages', label: 'Messages', icon: 'chat' },
+    { to: 'wallet', label: 'Wallet & payments', icon: 'wallet' },
+    { to: 'safety', label: 'Safety centre', icon: 'shield' },
+    { to: 'notifications', label: 'Notifications', icon: 'bell', count: 'unread' },
+    { to: 'support', label: 'Help & support', icon: 'ticket' },
+    { to: 'profile', label: 'Profile', icon: 'user' },
+    { to: 'settings', label: 'Settings', icon: 'gear' },
+  ],
+  routes: [
+    ['', Dashboard], ['tracking', LiveTracking], ['history', History], ['messages', () => <Messages role="passenger" />],
+    ['wallet', Wallet], ['safety', Safety], ['notifications', Notifications], ['support', SupportTickets], ['profile', Profile], ['settings', Settings],
+  ],
+};

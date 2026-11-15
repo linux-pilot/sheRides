@@ -1,23 +1,9 @@
-// One place for talking to the SheRides API and remembering who is signed in.
+// Talking to the SheRides API (HTTP + live WebSocket) and remembering who is signed in.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Opened from another device on the same Wi-Fi (e.g. http://192.168.1.67:3000 on a phone), "localhost" would mean
-// that device itself, so a localhost API address is pointed at the host this page came from instead.
-const LOCAL = ['localhost', '127.0.0.1', '[::1]'];
-const API = (() => {
-  // Default (VITE_API_URL empty): the API is this site's own /api path, forwarded by Vite (WebSocket included), so
-  // localhost, a phone on the Wi-Fi and OrbStack all work the same, with no CORS and no https page calling an
-  // http API. Below: only when VITE_API_URL points at a separately hosted API.
-  if (!import.meta.env.VITE_API_URL) return `${location.origin}/api`;
-  const url = new URL(import.meta.env.VITE_API_URL);
-  if (LOCAL.includes(url.hostname) && !LOCAL.includes(location.hostname)) {
-    // OrbStack HTTPS: https://client.<project>.orb.local → API at https://server.<project>.orb.local (an https page
-    // may only call an https API).
-    if (location.hostname.endsWith('.orb.local')) return `${location.protocol}//${location.hostname.replace(/^client\./, 'server.')}`;
-    url.hostname = location.hostname;
-  }
-  return url.origin;
-})();
+// Default (VITE_API_URL empty): this site's own /api path, forwarded by Vite with the WebSocket, so localhost, a phone
+// on the Wi-Fi and HTTPS addresses all work the same, with no CORS and no https page calling an http API.
+const API = import.meta.env.VITE_API_URL || `${location.origin}/api`;
 const KEY = 'sherides.session';
 
 export const ROLE_HOME = { passenger: '/app', driver: '/driver', admin: '/admin', support: '/support' };
@@ -37,24 +23,24 @@ window.addEventListener('storage', (e) => {
   if (e.key !== KEY && e.key !== null) return;
   const token = (v) => { try { return JSON.parse(v)?.token; } catch { return undefined; } };
   if (e.key === KEY && token(e.oldValue) === token(e.newValue)) return; // same account (e.g. name edit)
-  if (!inAppArea()) return;
   disconnect();
+  if (!inAppArea()) return;
   const s = getSession();
   location.assign(s ? ROLE_HOME[s.role] : '/signin');
 });
 
 export async function request(path, { method = 'GET', body } = {}) {
   const session = getSession();
+  const form = body instanceof FormData; // sets its own multipart Content-Type
   let res;
   try {
     res = await fetch(API + path, {
       method,
       headers: {
-        // FormData (file uploads) sets its own multipart Content-Type.
-        ...(body && !(body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+        ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
         ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
       },
-      body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
+      body: form ? body : body ? JSON.stringify(body) : undefined,
     });
   } catch {
     throw new Error('Cannot reach the SheRides server. Is it running?');
@@ -66,13 +52,13 @@ export async function request(path, { method = 'GET', body } = {}) {
     signOut();
     if (inAppArea() && !path.startsWith('/sos')) location.assign('/signin');
   }
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
   return data;
 }
 
 const startSession = ({ token, role, user }) => {
-  disconnect(); // drop any socket from a previous account
-  saveSession({ token, role, name: user.name });
+  disconnect();
+  saveSession({ token, role, id: user._id, name: user.name });
   return role;
 };
 
@@ -91,7 +77,7 @@ const dispatch = (msg) => listeners.forEach((fn) => fn(msg));
 
 function connect() {
   const session = getSession();
-  if (socket && socket.token !== session?.token) disconnect(); // account changed: never reuse another account's socket
+  if (socket && socket.token !== session?.token) disconnect(); // never reuse another account's socket
   if (!session || socket) return;
   clearTimeout(retryTimer);
   const ws = new WebSocket(`${API.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(session.token)}`);
@@ -112,13 +98,9 @@ function disconnect() {
   ws?.close();
 }
 
-// Set while the driver demo simulator is moving the car, so real GPS doesn't fight it.
-export const gps = { simulating: false };
-
 // Broadcast a local event to useLive/useApi subscribers (e.g. after marking notifications read).
 export const localEmit = (type, data) => dispatch({ type, data });
 
-// Keep the signed-in name (shown in the app bar) in step after a profile edit.
 export function setSessionName(name) {
   const s = getSession();
   if (!s || !name || s.name === name) return;
@@ -126,16 +108,10 @@ export function setSessionName(name) {
   dispatch({ type: 'session:changed' });
 }
 
-// Re-check the live connection against the current session (cheap; called on protected route render).
-export function syncLive() {
-  if (socket && socket.token !== getSession()?.token) { disconnect(); if (listeners.size) connect(); }
-}
-
 export function liveSend(type, data) {
   if (socket?.readyState === 1) socket.send(JSON.stringify({ type, data }));
 }
 
-// Subscribe a component to server events: handler({ type, data }).
 export function useLive(handler) {
   const ref = useRef(handler);
   ref.current = handler;
@@ -153,8 +129,7 @@ export function useApi(path, { on = [] } = {}) {
   const [state, setState] = useState({ data: null, error: '', loading: !!path });
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
-  const events = on.join(',');
-  useLive(({ type }) => { if (path && (type === 'ws:open' || events.split(',').includes(type))) reload(); });
+  useLive(({ type }) => { if (path && (type === 'ws:open' || on.includes(type))) reload(); });
   useEffect(() => {
     if (!path) { setState({ data: null, error: '', loading: false }); return undefined; }
     let live = true;
@@ -182,39 +157,6 @@ export function useOnce() {
   return [run, busy];
 }
 
-// Browser location once, or null after `ms`. The hard timer matters: the geolocation `timeout` does not
-// count time spent on an unanswered permission prompt, and SOS must never wait on that.
-export const currentPosition = (ms = 3000) => new Promise((resolve) => {
-  if (!navigator.geolocation) return resolve(null);
-  setTimeout(() => resolve(null), ms);
-  navigator.geolocation.getCurrentPosition(
-    (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-    () => resolve(null),
-    { enableHighAccuracy: true, timeout: ms, maximumAge: 30000 },
-  );
-});
-
-// Address → coordinates with OpenStreetMap's free Nominatim service (light use only, no key).
-// The typed address is sent to OSM; nothing else about the user is.
-export async function geocode(query) {
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&accept-language=en&q=${encodeURIComponent(query)}`;
-  let hits;
-  try {
-    hits = await fetch(url).then((r) => r.json());
-  } catch {
-    throw new Error('Address lookup is unavailable right now. Try again.');
-  }
-  if (!hits?.length) throw new Error(`Couldn't find "${query}". Try adding the area or city.`);
-  return { address: query, lat: Number(hits[0].lat), lng: Number(hits[0].lon) };
-}
-
-
-// KYC uploads: same limits the server enforces (it re-checks by file content).
-export const KYC_TYPES = ['Driving licence', 'Vehicle RC', 'Aadhaar (KYC)', 'Insurance'];
-const UPLOAD_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
-export const uploadError = (file) =>
-  file && (!UPLOAD_TYPES.includes(file.type) || file.size > 2 * 1024 * 1024) ? 'Upload a JPG, PNG or PDF of 2 MB or less.' : '';
-
 export function uploadDocument(type, file) {
   const form = new FormData();
   form.append('type', type);
@@ -236,8 +178,3 @@ export async function openFile(name) {
     alert(err.message);
   }
 }
-
-export const fmtDate = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-// `night` is a retired tier: it can no longer be booked, the name is kept only so old ride history still reads correctly.
-export const TIER_NAME = { lite: 'SheRides Lite', prime: 'SheRides Prime', night: 'Night Guardian' };
-export const TICKET_CATEGORIES = ['Payment', 'Ride', 'Safety', 'KYC', 'Lost & found', 'App issue', 'Other'];

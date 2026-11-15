@@ -3,6 +3,7 @@ import { Component } from 'react';
 import { Link } from 'react-router-dom';
 
 export const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+export const fmtDate = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 const PATHS = {
   home: 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
@@ -25,7 +26,6 @@ const PATHS = {
   menu: 'M4 6h16M4 12h16M4 18h16',
   send: 'M4 12l16-8-6 16-3-7z',
   plus: 'M12 5v14M5 12h14',
-  mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
   users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7.5M18 14a6 6 0 0 1 4 7',
   route: 'M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 17h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7',
   phone: 'M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z',
@@ -70,9 +70,9 @@ export function Card({ title, action, children, className = '', style }) {
 }
 
 const TONE = {
-  completed: 'ok', approved: 'ok', active: 'ok', resolved: 'ok', success: 'ok', online: 'ok',
-  pending: 'warn', open: 'warn', in_progress: 'warn', investigating: 'warn', driver_assigned: 'warn',
-  cancelled: 'bad', rejected: 'bad', blocked: 'bad', deviation: 'bad', failed: 'bad', sos: 'bad',
+  completed: 'ok', approved: 'ok', active: 'ok', resolved: 'ok',
+  pending: 'warn', open: 'warn', in_progress: 'warn', driver_assigned: 'warn',
+  cancelled: 'bad', rejected: 'bad', blocked: 'bad', deviation: 'bad', sos: 'bad',
   en_route: 'pink', otp_verified: 'pink', requested: 'pink', arrived: 'pink',
 };
 // "otp_verified" → "OTP verified", "in_progress" → "In progress" (sentence case; explicit labels shown as given).
@@ -89,7 +89,6 @@ export function Stars({ n }) {
   return <span className="pink" aria-label={`${n} of 5 stars`}>{'★'.repeat(n)}<span className="muted">{'★'.repeat(5 - n)}</span></span>;
 }
 
-// Clickable 1–5 star picker.
 export function StarInput({ value, onChange }) {
   return (
     <div className="row" role="radiogroup" aria-label="Rating" style={{ gap: '.15rem' }}>
@@ -101,7 +100,6 @@ export function StarInput({ value, onChange }) {
   );
 }
 
-// Shows a list or an empty / loading / error message.
 export function Empty({ loading, error, children }) {
   if (error) return <div className="error" role="alert">{error}</div>;
   return <p className="muted" style={{ margin: 0 }}>{loading ? 'Loading…' : children}</p>;
@@ -117,7 +115,7 @@ export function PageHead({ title, sub, children }) {
 }
 
 export function Bars({ data, label, value }) {
-  const max = Math.max(1, ...data.map(value)); // avoid 0/0 when every bar is zero
+  const max = Math.max(1, ...data.map(value));
   return (
     <div className="bars" role="img" aria-label={data.map((d) => `${label(d)}: ${value(d)}`).join(', ')}>
       {data.map((d, i) => (

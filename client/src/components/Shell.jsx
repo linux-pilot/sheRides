@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ErrorBoundary, Icon, Logo } from './ui.jsx';
 import { SosModal } from './SosModal.jsx';
-import { getSession, gps, liveSend, signOut, useLive } from '../api.js';
+import { getSession, signOut, useLive } from '../api.js';
 
 const noCounts = () => ({});
 
-// Live toasts: notifications for passengers, route-deviation and SOS alerts for everyone who should see them.
+// Live toasts. The server only sends `notification` to passengers and `sos:alert` to admins.
 function Toasts({ role }) {
   const [items, setItems] = useState([]);
   const push = (t) => {
@@ -15,14 +15,14 @@ function Toasts({ role }) {
     setTimeout(() => setItems((list) => list.filter((x) => x.id !== id)), t.alert ? 12000 : 6000);
   };
   useLive(({ type, data }) => {
-    // Passengers get every alert as a notification (deviation included), so one toast each.
-    if (type === 'notification' && role === 'passenger') push({ text: data.message, alert: data.alert });
+    if (type === 'notification') push({ text: data.message, alert: data.alert });
+    // Passengers already get a deviation as a notification.
     if (type === 'deviation:alert' && role !== 'passenger') {
       push(data.deviated
         ? { alert: true, text: `Route alert: car is ${data.offM} m off the planned route.` }
         : { text: 'Back on the planned route.' });
     }
-    if (type === 'sos:alert' && role === 'admin' && data.status === 'active' && data.name) push({ alert: true, text: `SOS from ${data.name} (${data.raisedBy}). Open SOS alerts.` });
+    if (type === 'sos:alert' && data.status === 'active') push({ alert: true, text: `SOS from ${data.name} (${data.raisedBy}). Open SOS alerts.` });
   });
   return (
     <div className="toasts" aria-live="assertive">
@@ -37,23 +37,9 @@ function Toasts({ role }) {
   );
 }
 
-// Drivers share their real GPS position (every 5 s) while signed in; paused while the demo simulator drives.
-function DriverGps() {
-  useEffect(() => {
-    if (!navigator.geolocation) return undefined;
-    let last = 0;
-    const watch = navigator.geolocation.watchPosition((p) => {
-      if (gps.simulating || Date.now() - last < 5000) return;
-      last = Date.now();
-      liveSend('driver:location', { lat: p.coords.latitude, lng: p.coords.longitude });
-    }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
-    return () => navigator.geolocation.clearWatch(watch);
-  }, []);
-  return null;
-}
-
-// Shared app layout for every role: sidebar (drawer on mobile) + app bar + animated page outlet.
-export function Shell({ role, base, menu, sos = false, useCounts = noCounts }) {
+// Shared app layout for every role: sidebar (drawer on mobile) + app bar + page outlet.
+// `Background`: an area's always-on component (e.g. the driver's GPS sender).
+export function Shell({ role, base, menu, sos = false, useCounts = noCounts, Background }) {
   const [, rerender] = useState(0);
   useLive(({ type }) => { if (type === 'session:changed') rerender((n) => n + 1); });
   const user = getSession()?.name || role;
@@ -112,7 +98,7 @@ export function Shell({ role, base, menu, sos = false, useCounts = noCounts }) {
       {sosButton('sos-fab')}
       {sosOpen && <SosModal role={role} onClose={() => setSosOpen(false)} />}
       <Toasts role={role} />
-      {role === 'driver' && <DriverGps />}
+      {Background && <Background />}
     </div>
   );
 }

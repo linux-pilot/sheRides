@@ -10,7 +10,6 @@
 :root {
   --navy: #213745;
   --bg: #172833;
-  --card: #213745;
   --card-2: #2b4555;
   --line: rgba(234, 217, 201, 0.12);
   --pink: #ff5b8e;
@@ -22,7 +21,7 @@
   --warn: #f2b84b;
   --grad: linear-gradient(135deg, #ff5b8e 0%, #ff8fae 100%);
   --radius: 18px;
-  --serif: 'Plain Amp', 'Playfair Display', Georgia, serif; /* 'Plain Amp' only covers the & character */
+  --serif: 'Plain Amp', 'Playfair Display', Georgia, serif;
   --sans: 'Inter', system-ui, -apple-system, sans-serif;
 
   /* Depth: layered shadows tinted with the deep navy, plus a pink glow for primary actions. */

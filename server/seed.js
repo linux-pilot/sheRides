@@ -3,12 +3,8 @@
 // Without --yes it only says which database it would wipe, so a stray run cannot destroy real data.
 // All demo accounts share the password below (test values only, never real credentials).
 import mongoose from 'mongoose';
-import bcrypt from 'bcrypt';
-import { readdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { randomBytes } from 'node:crypto';
 import * as M from './models.js';
-import { removeUpload, UPLOAD_DIR } from './uploads.js';
+import { clearUploads, saveUpload } from './uploads.js';
 import { distanceKm, fareFor, makeOtp } from './rideRules.js';
 
 const DEMO_PASSWORD = 'SheRides@123';
@@ -20,12 +16,13 @@ if (!process.argv.includes('--yes')) {
 }
 
 await mongoose.connect(process.env.MONGO_URL);
-await Promise.all(Object.values(M).filter((m) => m?.deleteMany).map((m) => m.deleteMany({})));
-await Promise.all(Object.values(M).filter((m) => m?.syncIndexes).map((m) => m.syncIndexes()));
+const models = Object.values(mongoose.models);
+await Promise.all(models.map((m) => m.deleteMany({})));
+await Promise.all(models.map((m) => m.syncIndexes()));
 
-for (const f of await readdir(UPLOAD_DIR)) await removeUpload(f);
+await clearUploads();
 
-const password = await bcrypt.hash(DEMO_PASSWORD, 10);
+const password = await M.hashPassword(DEMO_PASSWORD);
 
 // One-page placeholder PDF so seeded KYC documents open in the admin review screen.
 async function samplePdf(title) {
@@ -44,9 +41,7 @@ async function samplePdf(title) {
   const xref = pdf.length;
   pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
   pdf += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  const name = `${randomBytes(16).toString('hex')}.pdf`;
-  await writeFile(path.join(UPLOAD_DIR, name), pdf, 'latin1');
-  return name;
+  return saveUpload({ buffer: Buffer.from(pdf, 'latin1') });
 }
 
 await M.Admin.create({ name: 'Admin', email: 'admin@sherides.test', password, phone: '+91 80000 00001' });
@@ -75,15 +70,15 @@ const driver = async (name, email, plate, vehicleModel, verificationStatus, docT
   }
   return {
     name, email, password, phone: '+91 99000 ' + plate.slice(-5).replace(' ', '0'), licenseNumber: 'KA01' + plate.replace(/\D/g, '').padEnd(11, '0'),
-    vehicleModel, vehiclePlate: plate, verificationStatus, rating: verificationStatus === 'approved' ? 4.9 : 0,
-    licensePhoto: documents.find((d) => d.type === 'Driving licence')?.path, documents,
+    vehicleModel, vehiclePlate: plate, verificationStatus,
+    licensePhoto: documents.find((d) => d.type === M.LICENCE)?.path, documents,
   };
 };
-const ALL = ['Driving licence', 'Vehicle RC', 'Aadhaar (KYC)'];
+const ALL = M.DOC_TYPES.filter((t) => t !== 'Insurance');
 const [priya] = await M.Driver.create([
   await driver('Priya Sharma', 'priya@sherides.test', 'KA 01 MX 4821', 'Maruti Swift', 'approved', ALL),
   await driver('Neha Verma', 'neha@sherides.test', 'KA 03 AB 1290', 'Hyundai i20', 'pending', ALL),
-  await driver('Pooja Iyer', 'pooja@sherides.test', 'KA 05 MN 7781', 'Honda City', 'pending', ['Driving licence', 'Vehicle RC']),
+  await driver('Pooja Iyer', 'pooja@sherides.test', 'KA 05 MN 7781', 'Honda City', 'pending', [M.LICENCE, 'Vehicle RC']),
   // No licence yet: shows that approval is blocked until one is uploaded.
   await driver('Rekha Das', 'rekha@sherides.test', 'KA 51 ZZ 4410', 'Tata Tiago', 'pending', []),
 ]);
@@ -120,7 +115,8 @@ await M.Ride.insertMany([{ user: ananya._id, pickup: PLACES.sat, drop: PLACES.va
   status: 'cancelled', cancel: { by: 'passenger', reason: 'Plans changed', at: ago(6) }, createdAt: ago(6), updatedAt: ago(6) }]);
 await M.Payment.insertMany([{ user: ananya._id, amount: 1000, method: 'topup', status: 'success', createdAt: ago(5) }]);
 const earned = (await M.Ride.find({ driver: priya._id, status: 'completed' })).reduce((sum, r) => sum + r.fare, 0);
-await M.Driver.updateOne({ _id: priya._id }, { rating: 4.8, walletBalance: earned });
+const stars = past.map((row) => row[5]).filter(Boolean);
+await M.Driver.updateOne({ _id: priya._id }, { rating: Math.round((stars.reduce((a, b) => a + b, 0) / stars.length) * 10) / 10, walletBalance: earned });
 
 const lastRide = await M.Ride.findOne({ user: ananya._id, status: 'completed' }).sort({ createdAt: -1 });
 await M.SosAlert.create({ ride: lastRide._id, user: ananya._id, driver: priya._id, raisedBy: 'passenger', location: PLACES.vas, status: 'resolved', triggeredAt: ago(1, 18), resolvedAt: ago(1, 18) });

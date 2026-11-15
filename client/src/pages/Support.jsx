@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Badge, Card, Empty, PageHead, Stat } from '../components/ui.jsx';
-import { fmtDate, getSession, request, useApi } from '../api.js';
+import { Badge, Card, Empty, fmtDate, PageHead, Stat } from '../components/ui.jsx';
+import { getSession, request, useApi } from '../api.js';
+import { TICKET_STATUS } from '../constants.js';
 
-const STATUSES = ['open', 'in_progress', 'resolved'];
-const LIVE = { on: ['ticket:update'] }; // server pushes every ticket create/update
+const LIVE = { on: ['ticket:update'] };
 const from = (t) => (t.user ? `${t.user.name} (passenger)` : t.driver ? `${t.driver.name} (driver)` : 'Unknown');
 
 function TicketQueue({ resolved = false }) {
@@ -64,7 +64,7 @@ function TicketQueue({ resolved = false }) {
                 </select></div>
               <div className="field"><label htmlFor="st">Status</label>
                 <select id="st" value={t.status} onChange={(e) => update({ status: e.target.value }, 'Status updated.')}>
-                  {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                  {TICKET_STATUS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 </select></div>
             </div>
             <form onSubmit={(e) => { e.preventDefault(); update({ response: draft.trim(), ...(t.status === 'open' ? { status: 'in_progress' } : {}) }, 'Response sent.'); }}>
@@ -80,7 +80,7 @@ function TicketQueue({ resolved = false }) {
 
 function Dashboard() {
   const { data, loading, error } = useApi('/tickets?status=all', LIVE);
-  const me = getSession()?.name;
+  const me = getSession()?.id;
   const list = data || [];
   const open = list.filter((t) => t.status !== 'resolved');
   return (
@@ -88,7 +88,7 @@ function Dashboard() {
       <PageHead title="Support desk" sub="Tickets from passengers and drivers" />
       <div className="grid g3" style={{ marginBottom: '1.1rem' }}>
         <Stat icon="ticket" label="Open tickets" value={data ? open.length : '…'} />
-        <Stat icon="user" label="Assigned to you" value={data ? open.filter((t) => t.assignedTo?.name === me).length : '…'} />
+        <Stat icon="user" label="Assigned to you" value={data ? open.filter((t) => t.assignedTo?._id === me).length : '…'} />
         <Stat icon="check" label="Resolved" value={data ? list.length - open.length : '…'} />
       </div>
       <Card title="Needs attention">

@@ -1,6 +1,4 @@
 // WebSocket hub on /ws. Clients connect with ?token=<JWT>; each socket is filed under role + account id.
-// Server → client events: ride:update, ride:request, driver:location, deviation:alert, chat:message,
-// sos:alert, notification. Client → server: driver:location, sos:location (handled in tracking.js).
 import { WebSocketServer } from 'ws';
 import { verifyToken } from './middleware.js';
 
@@ -24,8 +22,8 @@ function originAllowed(req, origins) {
   try { return new URL(origin).host === host; } catch { return false; }
 }
 
-// `types`: the client → server message types onMessage handles; anything else is ignored.
-export function attachRealtime(server, { origins, onMessage, types }) {
+// handlers: { 'message:type': async (auth, data) => … } for client → server messages; other types are ignored.
+export function attachRealtime(server, { origins, handlers }) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 8 * 1024 });
 
   wss.on('connection', (ws, req) => {
@@ -33,27 +31,26 @@ export function attachRealtime(server, { origins, onMessage, types }) {
     // itself). With no listener that event is an uncaught exception, so one bad frame would take the whole API down.
     ws.on('error', () => {});
     // ponytail: token travels in the URL (fine on localhost). Upgrade: short-lived ticket or cookie auth.
-    const claims = verifyToken(new URL(req.url, 'http://x').searchParams.get('token'));
-    if (!claims || !originAllowed(req, origins)) return ws.close(4401, 'Unauthorized');
+    const auth = verifyToken(new URL(req.url, 'http://x').searchParams.get('token'));
+    if (!auth || !originAllowed(req, origins)) return ws.close(4401, 'Unauthorized');
 
-    const k = key(claims.role, claims.sub);
+    const k = key(auth.role, auth.id);
     if (!sockets.has(k)) sockets.set(k, new Set());
     sockets.get(k).add(ws);
-    ws.auth = { id: claims.sub, role: claims.role };
+    const lastMsg = new Map(); // type → time of the last accepted message
     ws.alive = true;
-    ws.lastMsg = new Map(); // type → time of the last accepted message
 
     ws.on('pong', () => { ws.alive = true; });
     ws.on('message', async (raw) => {
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
-      if (!msg || !types.includes(msg.type)) return;
+      if (!msg || !Object.hasOwn(handlers, msg.type)) return;
       // Flood guard per message type (max ~4/second each), so a driver's GPS ping never drops her SOS location.
       const now = Date.now();
-      if (now - (ws.lastMsg.get(msg.type) || 0) < 250) return;
-      ws.lastMsg.set(msg.type, now);
+      if (now - (lastMsg.get(msg.type) || 0) < 250) return;
+      lastMsg.set(msg.type, now);
       try {
-        await onMessage(ws.auth, msg.type, msg.data);
+        await handlers[msg.type](auth, msg.data);
       } catch (err) {
         send(ws, 'error', { message: err.status ? err.message : 'Something went wrong' });
         if (!err.status) console.error(err);
@@ -65,7 +62,6 @@ export function attachRealtime(server, { origins, onMessage, types }) {
     });
   });
 
-  // Drop dead connections every 30 s.
   const timer = setInterval(() => {
     for (const ws of wss.clients) {
       if (!ws.alive) { ws.terminate(); continue; }

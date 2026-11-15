@@ -2,19 +2,25 @@
 // NoSQL embedding replaces the report's join tables: saved addresses, emergency contacts and
 // ride cancellation live inside their parent document. Ride history is a query, not a table.
 import mongoose from 'mongoose';
-import { ACTIVE_STATUSES, DRIVER_BUSY_STATUSES, TIER_IDS } from './rideRules.js';
+import bcrypt from 'bcrypt';
+import { ACTIVE_STATUSES, DRIVER_BUSY_STATUSES, RIDE_STATUS, TIER_IDS } from './rideRules.js';
 
 const { Schema, model } = mongoose;
 const ref = (name, required = false) => ({ type: Schema.Types.ObjectId, ref: name, required });
 const opts = { timestamps: true };
 const point = { lat: Number, lng: Number };
 
-// Passwords are bcrypt hashes and never leave the DB unless a query asks for them (`+password`).
+// Passwords are bcrypt hashes. They are only read when a query asks for them (`+password`) and never serialised.
 const password = { type: String, required: true, select: false };
 const email = { type: String, required: true, unique: true, lowercase: true, trim: true };
-
-export const ROLES = ['passenger', 'driver', 'admin', 'support'];
-export const RIDE_STATUS = ['requested', 'driver_assigned', 'otp_verified', 'en_route', 'arrived', 'completed', 'cancelled'];
+export const ACCOUNT_STATUS = ['active', 'blocked'];
+export const REVIEW_STATUS = ['pending', 'approved', 'rejected'];
+export const AVAILABILITY = ['online', 'offline'];
+export const TICKET_STATUS = ['open', 'in_progress', 'resolved'];
+export const COMPLAINT_STATUS = ['open', 'investigating', 'resolved'];
+export const CHAT_MAX = 500;
+const accountOpts = { ...opts, toJSON: { transform: (doc, { password: _, __v, ...rest }) => rest } };
+export const hashPassword = (plain) => bcrypt.hash(plain, 10);
 
 export const Admin = model('Admin', new Schema({
   name: { type: String, required: true },
@@ -22,7 +28,7 @@ export const Admin = model('Admin', new Schema({
   password,
   phone: String,
   role: { type: String, default: 'admin' },
-}, opts), 'admins');
+}, accountOpts), 'admins');
 
 export const User = model('User', new Schema({
   name: { type: String, required: true },
@@ -32,7 +38,7 @@ export const User = model('User', new Schema({
   gender: { type: String, enum: ['female'], required: true },
   profilePhoto: String,
   walletBalance: { type: Number, default: 0, min: 0 },
-  status: { type: String, enum: ['active', 'blocked'], default: 'active' },
+  status: { type: String, enum: ACCOUNT_STATUS, default: 'active' },
   emergencyContacts: [{ name: String, email: String, phone: String, relation: String }],
   savedAddresses: [{ label: String, address: String, ...point }],
   // Beyond the report: sharing preferences (Settings page). Alerts go out by email (SMTP).
@@ -40,13 +46,16 @@ export const User = model('User', new Schema({
     shareTrips: { type: Boolean, default: true },
     emailUpdates: { type: Boolean, default: true },
   },
-}, opts), 'users');
+}, accountOpts), 'users');
 
 // One spelling per plate so the unique index catches "KA01MX4821" vs "ka 01 mx 4821":
 // uppercase, spaces only between letter/digit groups → "KA 01 MX 4821".
 export const canonicalPlate = (v) => (typeof v === 'string'
   ? v.replace(/\s+/g, '').toUpperCase().replace(/([A-Z])(?=\d)/g, '$1 ').replace(/(\d)(?=[A-Z])/g, '$1 ')
   : v);
+
+export const LICENCE = 'Driving licence';
+export const DOC_TYPES = [LICENCE, 'Vehicle RC', 'Aadhaar (KYC)', 'Insurance'];
 
 export const Driver = model('Driver', new Schema({
   name: { type: String, required: true },
@@ -57,14 +66,14 @@ export const Driver = model('Driver', new Schema({
   licensePhoto: String,
   vehicleModel: { type: String, required: true },
   vehiclePlate: { type: String, required: true, unique: true, set: canonicalPlate },
-  verificationStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
-  availability: { type: String, enum: ['online', 'offline'], default: 'offline' },
+  verificationStatus: { type: String, enum: REVIEW_STATUS, default: 'pending' },
+  availability: { type: String, enum: AVAILABILITY, default: 'offline' },
   walletBalance: { type: Number, default: 0, min: 0 },
   rating: { type: Number, default: 0, min: 0, max: 5 },
-  status: { type: String, enum: ['active', 'blocked'], default: 'active' }, // beyond the report: admin block, as for users
-  documents: [{ type: { type: String }, path: String, status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' } }],
+  status: { type: String, enum: ACCOUNT_STATUS, default: 'active' }, // beyond the report: admin block, as for users
+  documents: [{ type: { type: String, enum: DOC_TYPES }, path: String, status: { type: String, enum: REVIEW_STATUS, default: 'pending' } }],
   location: point,
-}, opts), 'drivers');
+}, accountOpts), 'drivers');
 
 // Beyond the report's columns: `tier` (fare tier booked), `km`, `otpAttempts` (brute-force cap)
 // and `declinedBy` (drivers who skipped the request). Needed for booking, safety and matching.
@@ -75,14 +84,14 @@ const rideSchema = new Schema({
   drop: { address: String, ...point },
   tier: { type: String, enum: TIER_IDS, required: true },
   km: Number, // road distance (OSRM), straight line only if routing was unavailable
-  durationMin: Number, // estimated drive time
-  route: { type: [[Number]], default: undefined }, // planned road path [[lat, lng], …]: drawn on maps, used for deviation
+  durationMin: Number,
+  route: { type: [[Number]], default: undefined }, // planned path [[lat, lng], …]: drawn on maps, used for deviation
   fare: Number,
   otp: { type: String, match: /^\d{6}$/, select: false },
   otpAttempts: { type: Number, default: 0, select: false },
   declinedBy: { type: [ref('Driver')], select: false },
   acceptedAt: Date, // for the passenger's average wait
-  deviated: { type: Boolean, default: false }, // driver currently > DEVIATION_M off the planned route
+  deviated: { type: Boolean, default: false }, // driver currently more than DEVIATION_M off the planned route
   status: { type: String, enum: RIDE_STATUS, default: 'requested', index: true },
   startTime: Date,
   endTime: Date,
@@ -118,7 +127,7 @@ export const SupportTeam = model('SupportTeam', new Schema({
   name: { type: String, required: true },
   email,
   password,
-}, opts), 'supportteam');
+}, accountOpts), 'supportteam');
 
 export const SupportTicket = model('SupportTicket', new Schema({
   user: ref('User'),
@@ -128,7 +137,7 @@ export const SupportTicket = model('SupportTicket', new Schema({
   category: String,
   message: { type: String, required: true },
   response: String,
-  status: { type: String, enum: ['open', 'in_progress', 'resolved'], default: 'open' },
+  status: { type: String, enum: TICKET_STATUS, default: 'open' },
 }, opts), 'supporttickets');
 
 export const Rating = model('Rating', new Schema({
@@ -141,7 +150,7 @@ export const Rating = model('Rating', new Schema({
 export const RideMessage = model('RideMessage', new Schema({
   ride: ref('Ride', true),
   sender: { type: String, enum: ['passenger', 'driver'], required: true },
-  message: { type: String, required: true, maxlength: 500 },
+  message: { type: String, required: true, maxlength: CHAT_MAX },
   sentAt: { type: Date, default: Date.now },
 }, opts), 'ridemessages');
 
@@ -150,7 +159,7 @@ export const Complaint = model('Complaint', new Schema({
   raisedBy: { type: String, enum: ['passenger', 'driver'], required: true },
   description: { type: String, required: true },
   resolutionNotes: String,
-  status: { type: String, enum: ['open', 'investigating', 'resolved'], default: 'open' },
+  status: { type: String, enum: COMPLAINT_STATUS, default: 'open' },
 }, opts), 'complaints');
 
 export const Payment = model('Payment', new Schema({
@@ -161,5 +170,7 @@ export const Payment = model('Payment', new Schema({
   status: { type: String, enum: ['success', 'failed'], default: 'success' },
 }, opts), 'payments');
 
-// Which collection holds the accounts for each login role.
 export const ACCOUNT_MODEL = { passenger: User, driver: Driver, admin: Admin, support: SupportTeam };
+export const ROLES = Object.keys(ACCOUNT_MODEL);
+// Which field of a ride, SOS alert or ticket points at the passenger or driver it belongs to.
+export const OWNER_FIELD = { passenger: 'user', driver: 'driver' };

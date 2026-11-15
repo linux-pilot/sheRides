@@ -1,24 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Badge, Bars, Card, Empty, Icon, inr, PageHead, Stars, Stat, Toggle } from '../components/ui.jsx';
-import { MapView } from '../components/MapView.jsx';
+import { Badge, Bars, Card, Empty, fmtDate, Icon, inr, PageHead, Stars, Stat, Toggle } from '../components/ui.jsx';
+import { MapView, tripMarkers } from '../components/MapView.jsx';
 import { Messages } from '../components/Chat.jsx';
-import { SupportTickets } from './Passenger.jsx';
+import { SupportTickets } from '../components/Tickets.jsx';
+import { liveSend, openFile, request, uploadDocument, useApi, useLive, useOnce } from '../api.js';
 import {
-  fmtDate, gps, KYC_TYPES, liveSend, openFile, request, TIER_NAME, uploadDocument, uploadError, useApi, useLive, useOnce,
-} from '../api.js';
-import { RIDE_STATES, STATE_LABEL } from '../constants.js';
+  KYC_TYPES, MONITORED, NEXT_STATUS, PAST, RIDE_STATES, STATE_LABEL, TIER_NAME, UPLOAD_ACCEPT, UPLOAD_HINT, uploadError,
+} from '../constants.js';
 
 const STATUS_NOTE = {
   pending: 'Your documents are under review. You can go online once an admin approves your account.',
   rejected: 'Your verification was rejected. Re-upload clear documents to be reviewed again.',
 };
 const RIDE_EVENTS = ['ride:update'];
-const tripMarkers = (r, car) => [
-  { pos: [r.pickup.lat, r.pickup.lng], kind: 'pickup', label: `Pickup: ${r.pickup.address}` },
-  { pos: [r.drop.lat, r.drop.lng], kind: 'drop', label: `Drop: ${r.drop.address}` },
-  ...(car ? [{ pos: [car.lat, car.lng], kind: car.deviated ? 'sos' : 'car', label: 'You' }] : []),
-];
 
 function Dashboard() {
   const nav = useNavigate();
@@ -28,7 +23,6 @@ function Dashboard() {
   const approved = user?.verificationStatus === 'approved';
   const current = useApi('/rides/active', { on: RIDE_EVENTS });
   const earnings = useApi('/driver/earnings', { on: RIDE_EVENTS });
-  // Requests refresh live (WebSocket `ride:request`) while online, approved and free.
   const requests = useApi(online && approved && !current.data ? '/driver/requests' : null, { on: ['ride:request'] });
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
@@ -115,8 +109,23 @@ function Dashboard() {
   );
 }
 
-// Planned road route (OSRM), or a straight line if routing was unavailable when booked.
-const pathOf = (r) => (r.route?.length > 1 ? r.route : [[r.pickup.lat, r.pickup.lng], [r.drop.lat, r.drop.lng]]);
+// True while the demo simulator drives the car, so the phone's real GPS does not fight it.
+let simulating = false;
+
+// While signed in, drivers share their real GPS position every 5 s (paused while the demo simulator drives).
+function DriverGps() {
+  useEffect(() => {
+    if (!navigator.geolocation) return undefined;
+    let last = 0;
+    const watch = navigator.geolocation.watchPosition((p) => {
+      if (simulating || Date.now() - last < 5000) return;
+      last = Date.now();
+      liveSend('driver:location', { lat: p.coords.latitude, lng: p.coords.longitude });
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
+    return () => navigator.geolocation.clearWatch(watch);
+  }, []);
+  return null;
+}
 
 // Point at fraction t (0–1) along a path, measured by distance.
 function along(path, t) {
@@ -134,14 +143,14 @@ function along(path, t) {
 
 // Demo GPS: drives the car along the planned route (optionally with a detour) and streams it over the
 // WebSocket exactly like real GPS, so route-deviation alerts can be shown without leaving the room.
-// ponytail: demo control for the viva; real trips use the phone's GPS (Shell → DriverGps).
+// ponytail: demo control for the viva; real trips use the phone's GPS (DriverGps).
 function useSimulator(ride, setCar) {
   const [mode, setMode] = useState(null); // null | 'route' | 'detour'
   const step = useRef(0);
   useEffect(() => {
     if (!mode || !ride) return undefined;
-    gps.simulating = true;
-    const path = pathOf(ride);
+    simulating = true;
+    const path = ride.route;
     // Unit vector (in metres east/north) at right angles to the trip, so a detour leaves the route
     // whichever way the trip runs (a fixed "north" push would slide along a north-bound route).
     const [a, b] = [path[0], path[path.length - 1]];
@@ -162,13 +171,13 @@ function useSimulator(ride, setCar) {
     };
     tick();
     const timer = setInterval(tick, 1500);
-    return () => { clearInterval(timer); gps.simulating = false; };
+    return () => { clearInterval(timer); simulating = false; };
   }, [mode, ride?._id]);
   const start = (m) => { step.current = 0; setMode(m); };
   return { mode, start, stop: () => setMode(null) };
 }
 
-const NEXT = { otp_verified: ['en_route', 'Start trip'], en_route: ['arrived', 'Mark arrived'], arrived: ['completed', 'Complete trip'] };
+const NEXT_LABEL = { en_route: 'Start trip', arrived: 'Mark arrived', completed: 'Complete trip' };
 
 function Trip() {
   const active = useApi('/rides/active', { on: RIDE_EVENTS });
@@ -188,7 +197,7 @@ function Trip() {
     setError('');
     try {
       const updated = await request(`/rides/${ride._id}/${path}`, { method: 'POST', body });
-      if (['completed', 'cancelled'].includes(updated.status)) { setFinished(updated); active.setData(null); sim.stop(); } else active.setData(updated);
+      if (PAST.includes(updated.status)) { setFinished(updated); active.setData(null); sim.stop(); } else active.setData(updated);
       setOtp('');
     } catch (err) {
       setError(err.message);
@@ -216,13 +225,13 @@ function Trip() {
   }
 
   const idx = RIDE_STATES.indexOf(ride.status);
-  const next = NEXT[ride.status];
-  const monitored = ['otp_verified', 'en_route'].includes(ride.status);
+  const next = NEXT_STATUS[ride.status];
+  const monitored = MONITORED.includes(ride.status);
   return (
     <>
       <PageHead title="Current trip" sub={`${TIER_NAME[ride.tier]} · ${ride.km} km${ride.durationMin ? ` · ~${ride.durationMin} min` : ''}`}><Badge value={car?.deviated ? 'deviation' : ride.status} label={car?.deviated ? 'Off route' : undefined} /></PageHead>
       <div className="grid g3">
-        <Card className="span2"><MapView height={440} markers={tripMarkers(ride, car)} route={pathOf(ride)} /></Card>
+        <Card className="span2"><MapView height={440} markers={tripMarkers(ride, car, 'You')} route={ride.route} /></Card>
         <div className="grid">
           <Card title="Trip details">
             <ul className="list small">
@@ -246,7 +255,7 @@ function Trip() {
                 <ol className="timeline">
                   {RIDE_STATES.map((s, i) => <li key={s} className={i <= idx ? 'done' : ''}>{STATE_LABEL[s]}</li>)}
                 </ol>
-                {next && <button className="btn btn-primary btn-block" disabled={busy} onClick={() => act('status', { status: next[0] })}>{next[1]}</button>}
+                {next && <button className="btn btn-primary btn-block" disabled={busy} onClick={() => act('status', { status: next })}>{NEXT_LABEL[next]}</button>}
               </>
             )}
           </Card>
@@ -366,7 +375,7 @@ function Profile() {
             {msg.ok && <p className="small" style={{ color: 'var(--ok)' }} role="status">{msg.ok}</p>}
             <div className="grid g2" style={{ gap: '.6rem' }}>
               <div><label htmlFor="dt">Document</label><select id="dt" value={type} onChange={(e) => setType(e.target.value)}>{KYC_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
-              <div><label htmlFor="up">File (JPG/PNG/PDF, max 2 MB)</label><input id="up" type="file" accept=".jpg,.jpeg,.png,.pdf" onChange={pick} /></div>
+              <div><label htmlFor="up">File ({UPLOAD_HINT})</label><input id="up" type="file" accept={UPLOAD_ACCEPT} onChange={pick} /></div>
             </div>
             <button className="btn btn-primary" style={{ marginTop: '.8rem' }} disabled={busy || !file}>{busy ? 'Uploading…' : 'Upload document'}</button>
           </form>
@@ -377,6 +386,8 @@ function Profile() {
 }
 
 export const driver = {
+  sos: true,
+  Background: DriverGps,
   menu: [
     { to: '', label: 'Dashboard', icon: 'home' },
     { to: 'trip', label: 'Current trip', icon: 'pin' },
