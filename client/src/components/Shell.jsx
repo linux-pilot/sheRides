@@ -6,7 +6,8 @@ import { getSession, signOut, useLive } from '../api.js';
 
 const noCounts = () => ({});
 
-// Live toasts. The server only sends `notification` to passengers and `sos:alert` to admins.
+// Live toasts. The server sends `notification` only to passengers, `sos:alert` only to admins, and
+// `deviation:alert` to the ride's passenger and driver and to admins.
 function Toasts({ role }) {
   const [items, setItems] = useState([]);
   const push = (t) => {

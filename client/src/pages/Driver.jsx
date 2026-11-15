@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Badge, Bars, Card, Empty, fmtDate, Icon, inr, PageHead, Stars, Stat, Toggle } from '../components/ui.jsx';
-import { MapView, tripMarkers } from '../components/MapView.jsx';
+import { liveCar, MapView, tripMarkers } from '../components/MapView.jsx';
 import { Messages } from '../components/Chat.jsx';
 import { SupportTickets } from '../components/Tickets.jsx';
-import { liveSend, openFile, request, uploadDocument, useApi, useLive, useOnce } from '../api.js';
+import { liveSend, openFile, request, uploadDocument, useAction, useApi, useLive, useOnce } from '../api.js';
 import {
   KYC_TYPES, MONITORED, NEXT_STATUS, PAST, RIDE_STATES, STATE_LABEL, TIER_NAME, UPLOAD_ACCEPT, UPLOAD_HINT, uploadError,
 } from '../constants.js';
@@ -167,7 +167,7 @@ function useSimulator(ride, setCar) {
       const side = mode === 'detour' ? Math.sin(Math.PI * t) * 900 : 0;
       const point = { lat: lat + (side * dx) / len / ky, lng: lng - (side * dy) / len / kx };
       liveSend('driver:location', point);
-      setCar((c) => ({ ...c, ...point }));
+      setCar((c) => ({ ...c, ...point, rideId: ride._id }));
     };
     tick();
     const timer = setInterval(tick, 1500);
@@ -190,7 +190,7 @@ function Trip() {
   const sim = useSimulator(ride, setCar);
 
   useLive(({ type, data }) => {
-    if (type === 'deviation:alert' && ride && data.rideId === ride._id) setCar((c) => ({ ...c, lat: data.lat, lng: data.lng, deviated: data.deviated }));
+    if (type === 'deviation:alert' && ride && data.rideId === ride._id) setCar((c) => ({ ...c, ...data }));
   });
 
   const act = (path, body) => once(async () => {
@@ -224,14 +224,15 @@ function Trip() {
     );
   }
 
+  const shownCar = liveCar(ride, car);
   const idx = RIDE_STATES.indexOf(ride.status);
   const next = NEXT_STATUS[ride.status];
   const monitored = MONITORED.includes(ride.status);
   return (
     <>
-      <PageHead title="Current trip" sub={`${TIER_NAME[ride.tier]} · ${ride.km} km${ride.durationMin ? ` · ~${ride.durationMin} min` : ''}`}><Badge value={car?.deviated ? 'deviation' : ride.status} label={car?.deviated ? 'Off route' : undefined} /></PageHead>
+      <PageHead title="Current trip" sub={`${TIER_NAME[ride.tier]} · ${ride.km} km${ride.durationMin ? ` · ~${ride.durationMin} min` : ''}`}><Badge value={shownCar?.deviated ? 'deviation' : ride.status} label={shownCar?.deviated ? 'Off route' : undefined} /></PageHead>
       <div className="grid g3">
-        <Card className="span2"><MapView height={440} markers={tripMarkers(ride, car, 'You')} route={ride.route} /></Card>
+        <Card className="span2"><MapView height={440} markers={tripMarkers(ride, shownCar, 'You')} route={ride.route} /></Card>
         <div className="grid">
           <Card title="Trip details">
             <ul className="list small">
@@ -318,8 +319,7 @@ function Profile() {
   const user = me.data?.user;
   const [type, setType] = useState(KYC_TYPES[0]);
   const [file, setFile] = useState(null);
-  const [msg, setMsg] = useState({ error: '', ok: '' });
-  const [busy, setBusy] = useState(false);
+  const { run, busy, msg, setMsg } = useAction();
 
   const pick = (e) => {
     const f = e.target.files[0];
@@ -332,17 +332,11 @@ function Profile() {
     e.preventDefault();
     if (!file) { setMsg({ error: 'Choose a file first.', ok: '' }); return; }
     const form = e.target;
-    setBusy(true);
-    try {
-      const driver = await uploadDocument(type, file);
-      me.setData((d) => ({ ...d, user: driver }));
-      setMsg({ error: '', ok: `${type} uploaded — awaiting review.` });
-      setFile(null);
-      form.reset();
-    } catch (err) {
-      setMsg({ error: err.message, ok: '' });
-    }
-    setBusy(false);
+    const driver = await run(() => uploadDocument(type, file), `${type} uploaded — awaiting review.`);
+    if (!driver) return;
+    me.setData((d) => ({ ...d, user: driver }));
+    setFile(null);
+    form.reset();
   };
 
   if (!user) return <><PageHead title="Profile & KYC" /><Card><Empty loading={me.loading} error={me.error} /></Card></>;
@@ -389,16 +383,12 @@ export const driver = {
   sos: true,
   Background: DriverGps,
   menu: [
-    { to: '', label: 'Dashboard', icon: 'home' },
-    { to: 'trip', label: 'Current trip', icon: 'pin' },
-    { to: 'earnings', label: 'Earnings', icon: 'wallet' },
-    { to: 'ratings', label: 'Ratings', icon: 'star' },
-    { to: 'messages', label: 'Messages', icon: 'chat' },
-    { to: 'tickets', label: 'Support', icon: 'ticket' },
-    { to: 'profile', label: 'Profile & KYC', icon: 'user' },
-  ],
-  routes: [
-    ['', Dashboard], ['trip', Trip], ['earnings', Earnings], ['ratings', Ratings],
-    ['messages', () => <Messages role="driver" />], ['tickets', SupportTickets], ['profile', Profile],
+    { to: '', label: 'Dashboard', icon: 'home', Page: Dashboard },
+    { to: 'trip', label: 'Current trip', icon: 'pin', Page: Trip },
+    { to: 'earnings', label: 'Earnings', icon: 'wallet', Page: Earnings },
+    { to: 'ratings', label: 'Ratings', icon: 'star', Page: Ratings },
+    { to: 'messages', label: 'Messages', icon: 'chat', Page: () => <Messages role="driver" /> },
+    { to: 'tickets', label: 'Support', icon: 'ticket', Page: SupportTickets },
+    { to: 'profile', label: 'Profile & KYC', icon: 'user', Page: Profile },
   ],
 };

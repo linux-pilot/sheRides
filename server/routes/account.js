@@ -13,7 +13,7 @@
 //   PUT    /admin/users/:id          admin              { status: active|blocked }
 import { Router } from 'express';
 import { ACCOUNT_MODEL, ACCOUNT_STATUS, Notification, Payment, Ride, SosAlert, User } from '../models.js';
-import { HttpError, idParam, POINT, requireRole, validate } from '../middleware.js';
+import { FIELD, HttpError, idParam, POINT, required, requireRole, validate } from '../middleware.js';
 import { inr, notifyUser } from '../notify.js';
 
 const router = Router();
@@ -24,7 +24,7 @@ const MAX_ADDRESSES = 10;
 
 // Blocked accounts may still edit their profile (e.g. switch trip sharing on during a ride).
 router.put('/me', requireRole('passenger', 'driver', { blockedOk: true }), async (req, res) => {
-  const update = validate(req.body, { name: { max: 80 }, phone: { type: 'phone' } });
+  const update = validate(req.body, { name: FIELD.name, phone: FIELD.phone });
   if (req.auth.role === 'passenger' && req.body?.preferences !== undefined) {
     const prefs = validate(req.body.preferences, { shareTrips: { type: 'boolean' }, emailUpdates: { type: 'boolean' } }, 'preferences.');
     for (const [k, v] of Object.entries(prefs)) update[`preferences.${k}`] = v;
@@ -36,7 +36,7 @@ router.put('/me', requireRole('passenger', 'driver', { blockedOk: true }), async
 router.post('/me/contacts', passenger, async (req, res) => {
   const c = validate(req.body, {
     name: { required: true, max: 60 }, relation: { required: true, max: 30 },
-    phone: { required: true, type: 'phone' }, email: { required: true, type: 'email', max: 120 },
+    phone: required(FIELD.phone), email: required(FIELD.email),
   });
   // ponytail: the address is not verified, so trip and SOS emails go to whoever she types (at most MAX_CONTACTS).
   // Upgrade: email a confirmation link and send trip updates only to confirmed contacts (SOS should still go to all).

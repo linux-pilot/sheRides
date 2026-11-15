@@ -5,16 +5,16 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { ACCOUNT_MODEL, hashPassword, ROLES } from '../models.js';
-import { BLOCKED_MESSAGE, HttpError, requireRole, signToken, validate } from '../middleware.js';
+import { BLOCKED_MESSAGE, FIELD, HttpError, required, requireRole, signToken, validate } from '../middleware.js';
 
 const router = Router();
 // Compared against when the email is unknown, so a miss costs the same time as a wrong password.
 const DUMMY_HASH = await hashPassword('not-a-real-password');
 
 const base = {
-  name: { required: true, max: 80 },
-  email: { required: true, type: 'email', max: 120 },
-  phone: { required: true, type: 'phone' },
+  name: required(FIELD.name),
+  email: required(FIELD.email),
+  phone: required(FIELD.phone),
   password: { required: true, min: 8, max: 72 }, // bcrypt only reads the first 72 bytes
   // Women-only platform: anything other than "female" is rejected here, before any write.
   gender: { required: true, oneOf: ['female'] },
@@ -47,6 +47,7 @@ function takeAttempt(key, max) {
   }
   if (a.n >= max) throw new HttpError(429, `Too many failed sign-ins. Try again in ${Math.ceil((a.until - now) / 60_000)} minutes.`);
   a.n += 1;
+  return a;
 }
 
 router.post('/auth/register/:role', async (req, res) => {
@@ -64,18 +65,18 @@ router.post('/auth/login/:role', async (req, res) => {
   const { role } = req.params;
   if (!ROLES.includes(role)) throw new HttpError(404, 'Unknown account type');
   const { email, password } = validate(req.body, {
-    email: { required: true, type: 'email', max: 120 },
+    email: required(FIELD.email),
     password: { required: true, max: 72 },
   });
 
   const key = `${role}:${email}|${req.ip}`;
   takeAttempt(key, MAX_FAILS);
-  takeAttempt(`${role}:${email}`, MAX_ACCOUNT_FAILS);
+  const accountWide = takeAttempt(`${role}:${email}`, MAX_ACCOUNT_FAILS);
   const account = await ACCOUNT_MODEL[role].findOne({ email }).select('+password');
   const ok = await bcrypt.compare(password, account?.password || DUMMY_HASH);
   if (!account || !ok) throw new HttpError(401, 'Wrong email or password');
   attempts.delete(key);
-  attempts.get(`${role}:${email}`).n -= 1;
+  accountWide.n -= 1;
   if (account.status === 'blocked') throw new HttpError(403, BLOCKED_MESSAGE);
 
   res.json({ token: signToken(account, role), role, user: account });

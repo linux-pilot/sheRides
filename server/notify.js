@@ -2,6 +2,7 @@
 import { Notification, Payment, Ride } from './models.js';
 import { emit, emitRole } from './realtime.js';
 import { sendMail } from './mailer.js';
+import { statusLabel } from './rideRules.js';
 
 export const mapLink = (p) => (p?.lat != null ? `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=17/${p.lat}/${p.lng}` : 'not available yet');
 export const inr = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
@@ -35,15 +36,19 @@ const PASSENGER_TEXT = {
 };
 // Trip sharing: these changes are emailed to emergency contacts when the passenger has sharing on.
 const SHARED = ['driver_assigned', 'otp_verified', 'completed', 'cancelled'];
-// The passenger's own emails: only the ones worth an inbox (driver & car, receipt, cancellation).
-const EMAIL_SELF = ['driver_assigned', 'completed', 'cancelled'];
+// The passenger's own emails, by subject: only the ones worth an inbox (driver & car, receipt, cancellation).
+const EMAIL_SUBJECT = {
+  driver_assigned: (r) => `${r.driver.name} accepted your ride`,
+  completed: () => 'Trip completed',
+  cancelled: () => 'Ride cancelled',
+};
 // Open-request lists change when a ride is booked, taken or cancelled.
 const REQUEST_LIST_CHANGES = ['requested', 'driver_assigned', 'cancelled'];
 
 function shareText(r) {
   const d = r.driver;
   return [
-    `${r.user.name}'s SheRides trip update: ${r.status.replace('_', ' ')}.`,
+    `${r.user.name}'s SheRides trip update: ${statusLabel(r.status)}.`,
     `From: ${r.pickup.address}`,
     `To:   ${r.drop.address}`,
     d ? driverLine(d) : '',
@@ -72,7 +77,7 @@ export async function rideChanged(rideId) {
     await notifyUser(r.user._id, text);
 
     const { emailUpdates, shareTrips } = r.user.preferences;
-    if (emailUpdates && EMAIL_SELF.includes(r.status)) await sendMail(r.user.email, `SheRides: ${text.split(/[.—]/)[0].trim()}`, text);
+    if (emailUpdates && EMAIL_SUBJECT[r.status]) await sendMail(r.user.email, `SheRides: ${EMAIL_SUBJECT[r.status](r)}`, text);
     if (shareTrips && SHARED.includes(r.status)) {
       await mailContacts(r.user, `SheRides trip update for ${r.user.name}`, shareText(r));
     }

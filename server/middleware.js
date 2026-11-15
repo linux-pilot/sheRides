@@ -95,6 +95,14 @@ export function validate(body, rules, path = '') {
   return out;
 }
 
+// Account fields shared by registration, sign-in, profile edits and emergency contacts.
+export const FIELD = {
+  name: { max: 80 },
+  email: { type: 'email', max: 120 },
+  phone: { type: 'phone' },
+};
+export const required = (rule) => ({ ...rule, required: true });
+
 export const POINT = {
   lat: { required: true, type: 'number', range: [-90, 90] },
   lng: { required: true, type: 'number', range: [-180, 180] },

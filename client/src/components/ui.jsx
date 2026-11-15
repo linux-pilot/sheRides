@@ -76,7 +76,7 @@ const TONE = {
   en_route: 'pink', otp_verified: 'pink', requested: 'pink', arrived: 'pink',
 };
 // "otp_verified" → "OTP verified", "in_progress" → "In progress" (sentence case; explicit labels shown as given).
-const sentence = (v) => { const s = String(v).replace(/_/g, ' ').replace(/\botp\b/i, 'OTP'); return s[0].toUpperCase() + s.slice(1); };
+export const sentence = (v) => { const s = String(v).replace(/_/g, ' ').replace(/\botp\b/i, 'OTP'); return s[0].toUpperCase() + s.slice(1); };
 export function Badge({ value, label }) {
   return <span className={`badge ${TONE[value] || ''}`}>{label || sentence(value)}</span>;
 }

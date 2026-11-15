@@ -3,6 +3,10 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 const AHMEDABAD = [23.0225, 72.5714]; // shown until markers, a route or the fence decide the view
+// Where to draw a ride's car: the latest live position for this ride, else the last one stored with it.
+export const liveCar = (ride, live) => (live?.rideId === ride._id ? live
+  : ride.driver?.location?.lat != null ? { ...ride.driver.location, deviated: ride.deviated } : null);
+
 // Pickup and drop pins plus the car (red while off route) for one trip.
 export const tripMarkers = ({ pickup, drop }, car, carLabel) => [
   { pos: [pickup.lat, pickup.lng], kind: 'pickup', label: `Pickup: ${pickup.address}` },

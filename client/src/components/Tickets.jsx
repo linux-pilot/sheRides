@@ -4,7 +4,7 @@ import { request, useApi, useOnce } from '../api.js';
 import { TICKET_CATEGORIES } from '../constants.js';
 
 export function SupportTickets() {
-  const { data, loading, error, setData } = useApi('/tickets', { on: ['notification', 'ticket:update'] });
+  const { data, loading, error, setData } = useApi('/tickets', { on: ['ticket:update'] });
   const blank = { subject: '', category: 'Ride', message: '' };
   const [form, setForm] = useState(blank);
   const [msg, setMsg] = useState('');

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Icon, Logo } from '../components/ui.jsx';
 import { login, register, ROLE_HOME, uploadDocument, useApi } from '../api.js';
-import { KYC_TYPES, PHONE_PATTERN, UPLOAD_ACCEPT, UPLOAD_HINT, uploadError } from '../constants.js';
+import { LICENCE, PHONE_PATTERN, UPLOAD_ACCEPT, UPLOAD_HINT, uploadError } from '../constants.js';
 
 function PublicNav() {
   return (
@@ -169,7 +169,7 @@ export function GetStarted() {
     }
     if (role === 'driver') {
       // Account exists now; if the licence upload fails, the KYC page lets her retry.
-      if (licensePhoto?.size) await uploadDocument(KYC_TYPES[0], licensePhoto).catch(() => {});
+      if (licensePhoto?.size) await uploadDocument(LICENCE, licensePhoto).catch(() => {});
       nav(`${ROLE_HOME.driver}/profile`);
     } else nav(ROLE_HOME[role]);
   };

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Bars, Card, Empty, fmtDate, Icon, inr, PageHead, Stat } from '../components/ui.jsx';
-import { MapView } from '../components/MapView.jsx';
+import { liveCar, MapView } from '../components/MapView.jsx';
 import { localEmit, openFile, request, useApi, useLive } from '../api.js';
 import { COMPLAINT_STATUS, REVIEW_FILTERS, STATE_LABEL, TIER_NAME } from '../constants.js';
 
@@ -16,8 +16,8 @@ function useLiveRides() {
     if (type === 'driver:location') setPos((p) => ({ ...p, [data.rideId]: data }));
   });
   const list = (rides.data || []).map((r) => {
-    const live = pos[r._id];
-    return { ...r, car: live || (r.driver?.location?.lat != null ? r.driver.location : null), deviated: live ? live.deviated : r.deviated };
+    const car = liveCar(r, pos[r._id]);
+    return { ...r, car, deviated: car ? car.deviated : r.deviated };
   });
   return { ...rides, list };
 }
@@ -73,7 +73,7 @@ function Drivers() {
       const updated = await request(`/admin/drivers/${d._id}${path}`, { method: 'PUT', body });
       // Still matches this tab (the "all" tab, or docs approved for an already-approved driver) → update in place.
       const stays = filter === 'all' || filter === updated.verificationStatus;
-      setData(stays ? list.map((x) => (x._id === d._id ? updated : x)) : list.filter((x) => x._id !== d._id));
+      setData((l) => (stays ? l.map((x) => (x._id === d._id ? updated : x)) : l.filter((x) => x._id !== d._id)));
       localEmit('drivers:changed');
     } catch (err) {
       setError(`${d.name}: ${err.message}`);
@@ -362,17 +362,13 @@ function useAdminCounts() {
 export const admin = {
   useCounts: useAdminCounts,
   menu: [
-    { to: '', label: 'Dashboard', icon: 'chart' },
-    { to: 'drivers', label: 'Driver approvals', icon: 'users', count: 'pending' },
-    { to: 'users', label: 'Users', icon: 'user' },
-    { to: 'rides', label: 'Live rides', icon: 'pin' },
-    { to: 'complaints', label: 'Complaints', icon: 'ticket' },
-    { to: 'sos', label: 'SOS alerts', icon: 'alert', count: 'sos' },
-    { to: 'zones', label: 'Safety zones', icon: 'shield' },
-    { to: 'reports', label: 'Reports', icon: 'chart' },
-  ],
-  routes: [
-    ['', Dashboard], ['drivers', Drivers], ['users', Users], ['rides', Rides],
-    ['complaints', Complaints], ['sos', Sos], ['zones', Zones], ['reports', Reports],
+    { to: '', label: 'Dashboard', icon: 'chart', Page: Dashboard },
+    { to: 'drivers', label: 'Driver approvals', icon: 'users', count: 'pending', Page: Drivers },
+    { to: 'users', label: 'Users', icon: 'user', Page: Users },
+    { to: 'rides', label: 'Live rides', icon: 'pin', Page: Rides },
+    { to: 'complaints', label: 'Complaints', icon: 'ticket', Page: Complaints },
+    { to: 'sos', label: 'SOS alerts', icon: 'alert', count: 'sos', Page: Sos },
+    { to: 'zones', label: 'Safety zones', icon: 'shield', Page: Zones },
+    { to: 'reports', label: 'Reports', icon: 'chart', Page: Reports },
   ],
 };

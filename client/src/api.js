@@ -157,6 +157,28 @@ export function useOnce() {
   return [run, busy];
 }
 
+// One async action with a busy flag and an { error, ok } message. run(fn, okText) resolves to fn's result
+// (true if it returned nothing), or false if it threw.
+export function useAction() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState({ error: '', ok: '' });
+  const run = useCallback(async (fn, ok = '') => {
+    setBusy(true);
+    setMsg({ error: '', ok: '' });
+    try {
+      const result = await fn();
+      setMsg({ error: '', ok });
+      return result ?? true;
+    } catch (err) {
+      setMsg({ error: err.message, ok: '' });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  return { run, busy, msg, setMsg };
+}
+
 export function uploadDocument(type, file) {
   const form = new FormData();
   form.append('type', type);

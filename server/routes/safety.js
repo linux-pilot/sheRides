@@ -5,7 +5,8 @@
 //   POST /sos/:id/resolve           owner ("I am safe") or admin
 //   GET  /admin/sos?status=         admin
 //   WS   sos:location {lat, lng}    passenger|driver   live location while an SOS is active → admin `sos:location`
-// Admins receive `sos:alert` { id, status } when an SOS is raised or resolved.
+// Admins receive `sos:alert` when an SOS is raised ({ id, status: 'active', name, raisedBy, location }) or resolved
+// ({ id, status: 'resolved' }).
 import { Router } from 'express';
 import { ACCOUNT_MODEL, OWNER_FIELD, Ride, SosAlert, User } from '../models.js';
 import { HttpError, idParam, POINT, requireRole, validate } from '../middleware.js';
@@ -92,7 +93,7 @@ router.get('/admin/sos', requireRole('admin'), async (req, res) => {
 
 // WebSocket `sos:location`: keep the active SOS's location current for the control room.
 export async function sosLocation(auth, data) {
-  if (!OWNER_FIELD[auth.role]) return;
+  if (!OWNER_FIELD[auth.role]) throw new HttpError(403, 'Only passengers and drivers raise SOS');
   const location = validate(data, POINT);
   const sos = await SosAlert.findOneAndUpdate({ ...ownSos(auth), status: 'active' }, { location }, { new: true });
   if (sos) emitRole('admin', 'sos:location', { id: String(sos._id), location });

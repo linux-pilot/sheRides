@@ -25,7 +25,8 @@ export const COMPLAINT_STATUS = ['open', 'investigating', 'resolved'];
 // `night` is a retired tier: it can no longer be booked, the name is kept so old ride history still reads correctly.
 export const TIER_NAME = { lite: 'SheRides Lite', prime: 'SheRides Prime', night: 'Night Guardian' };
 export const TICKET_CATEGORIES = ['Payment', 'Ride', 'Safety', 'KYC', 'Lost & found', 'App issue', 'Other'];
-export const KYC_TYPES = ['Driving licence', 'Vehicle RC', 'Aadhaar (KYC)', 'Insurance'];
+export const LICENCE = 'Driving licence';
+export const KYC_TYPES = [LICENCE, 'Vehicle RC', 'Aadhaar (KYC)', 'Insurance'];
 export const MAX_CONTACTS = 5;
 export const MAX_PLACES = 10;
 export const PHONE_PATTERN = '[0-9+ ]{10,15}';

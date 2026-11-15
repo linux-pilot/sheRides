@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Badge, Card, Empty, fmtDate, PageHead, Stat } from '../components/ui.jsx';
+import { Badge, Card, Empty, fmtDate, PageHead, sentence, Stat } from '../components/ui.jsx';
 import { getSession, request, useApi } from '../api.js';
 import { TICKET_STATUS } from '../constants.js';
 
@@ -64,7 +64,7 @@ function TicketQueue({ resolved = false }) {
                 </select></div>
               <div className="field"><label htmlFor="st">Status</label>
                 <select id="st" value={t.status} onChange={(e) => update({ status: e.target.value }, 'Status updated.')}>
-                  {TICKET_STATUS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                  {TICKET_STATUS.map((s) => <option key={s} value={s}>{sentence(s)}</option>)}
                 </select></div>
             </div>
             <form onSubmit={(e) => { e.preventDefault(); update({ response: draft.trim(), ...(t.status === 'open' ? { status: 'in_progress' } : {}) }, 'Response sent.'); }}>
@@ -108,9 +108,8 @@ function useSupportCounts() {
 export const support = {
   useCounts: useSupportCounts,
   menu: [
-    { to: '', label: 'Dashboard', icon: 'home' },
-    { to: 'queue', label: 'Ticket queue', icon: 'ticket', count: 'open' },
-    { to: 'history', label: 'History', icon: 'clock' },
+    { to: '', label: 'Dashboard', icon: 'home', Page: Dashboard },
+    { to: 'queue', label: 'Ticket queue', icon: 'ticket', count: 'open', Page: () => <TicketQueue /> },
+    { to: 'history', label: 'History', icon: 'clock', Page: () => <TicketQueue resolved /> },
   ],
-  routes: [['', Dashboard], ['queue', () => <TicketQueue />], ['history', () => <TicketQueue resolved />]],
 };

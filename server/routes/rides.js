@@ -24,7 +24,7 @@ import { roadRoute } from '../routing.js';
 import {
   ACTIVE_STATUSES, CANCELLABLE, DEVIATION_M, distanceKm, distanceToPathM, DRIVER_BUSY_STATUSES, fareFor,
   insideServiceArea, makeOtp, MAX_OTP_ATTEMPTS, MIN_KM, MONITORED_STATUSES, NEXT_STATUS, otpMatches,
-  PAST_STATUSES, SERVICE_AREA, TIER_IDS, TIERS,
+  PAST_STATUSES, SERVICE_AREA, statusLabel, TIER_IDS, TIERS,
 } from '../rideRules.js';
 
 const router = Router();
@@ -194,7 +194,7 @@ router.post('/rides/:id/status', requireRole('driver', { blockedOk: true }), asy
     { _id: id, driver: req.auth.id, status: from },
     { status, ...(status === 'completed' ? { endTime: new Date() } : {}) },
   );
-  if (!ride) throw new HttpError(409, `Ride must be "${from.replace('_', ' ')}" to move to "${status.replace('_', ' ')}"`);
+  if (!ride) throw new HttpError(409, `Ride must be "${statusLabel(from)}" to move to "${statusLabel(status)}"`);
   res.json(await findRide({ _id: id }, 'driver'));
 });
 
@@ -210,9 +210,14 @@ router.post('/rides/:id/cancel', eitherBlockedOk, async (req, res) => {
   res.json(await findRide({ _id: id }, role));
 });
 
-async function refreshDriverRating(driverId) {
+// Rating filter for what passengers said about a driver's completed rides.
+export async function ratingsOfDriver(driverId) {
   const rides = await Ride.find({ driver: driverId, status: 'completed' }).distinct('_id');
-  const [agg] = await Rating.aggregate([{ $match: { ride: { $in: rides }, ratedBy: 'passenger' } }, { $group: { _id: null, avg: { $avg: '$stars' } } }]);
+  return { ride: { $in: rides }, ratedBy: 'passenger' };
+}
+
+async function refreshDriverRating(driverId) {
+  const [agg] = await Rating.aggregate([{ $match: await ratingsOfDriver(driverId) }, { $group: { _id: null, avg: { $avg: '$stars' } } }]);
   await Driver.updateOne({ _id: driverId }, { rating: agg ? Math.round(agg.avg * 10) / 10 : 0 });
 }
 

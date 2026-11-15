@@ -14,7 +14,7 @@ import { HttpError, idParam, requireRole, validate } from '../middleware.js';
 import { DRIVER_BUSY_STATUSES, localDate, TIME_ZONE } from '../rideRules.js';
 import { emit } from '../realtime.js';
 import { receiveFile, removeUpload, saveUpload, sendUpload } from '../uploads.js';
-import { releaseAcceptedRide } from './rides.js';
+import { ratingsOfDriver, releaseAcceptedRide } from './rides.js';
 
 const router = Router();
 const driver = requireRole('driver');
@@ -85,8 +85,7 @@ router.get('/driver/earnings', driver, async (req, res) => {
 });
 
 router.get('/driver/ratings', driver, async (req, res) => {
-  const rides = await Ride.find({ driver: req.auth.id, status: 'completed' }).select('_id').lean();
-  res.json(await Rating.find({ ride: { $in: rides.map((r) => r._id) }, ratedBy: 'passenger' })
+  res.json(await Rating.find(await ratingsOfDriver(req.auth.id))
     .populate({ path: 'ride', select: 'user pickup drop', populate: { path: 'user', select: 'name' } })
     .sort({ createdAt: -1 }).limit(100));
 });

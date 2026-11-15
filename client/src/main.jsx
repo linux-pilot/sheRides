@@ -33,7 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/signup" element={<GetStarted />} />
         {AREAS.map((a) => (
           <Route key={a.base} path={a.base} element={<RequireRole role={a.role}><Shell key={a.base} {...a} /></RequireRole>}>
-            {a.routes.map(([path, Page]) => (path ? <Route key={path} path={path} element={<Page />} /> : <Route key="index" index element={<Page />} />))}
+            {a.menu.map(({ to, Page }) => (to ? <Route key={to} path={to} element={<Page />} /> : <Route key="index" index element={<Page />} />))}
           </Route>
         ))}
         <Route path="*" element={<Navigate to="/" />} />

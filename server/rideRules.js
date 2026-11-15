@@ -9,6 +9,7 @@ export const DRIVER_BUSY_STATUSES = ACTIVE_STATUSES.filter((s) => s !== 'request
 export const MONITORED_STATUSES = ['otp_verified', 'en_route'];
 // After OTP verification the driver moves the trip forward one step at a time.
 export const NEXT_STATUS = { otp_verified: 'en_route', en_route: 'arrived', arrived: 'completed' };
+export const statusLabel = (s) => s.replace(/_/g, ' ');
 export const CANCELLABLE = { passenger: ['requested', 'driver_assigned'], driver: ['driver_assigned'] };
 
 // ponytail: no surge pricing.

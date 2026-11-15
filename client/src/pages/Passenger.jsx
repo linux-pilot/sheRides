@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Card, Empty, fmtDate, Icon, inr, PageHead, Stars, StarInput, Stat, Toggle } from '../components/ui.jsx';
-import { MapView, tripMarkers } from '../components/MapView.jsx';
+import { liveCar, MapView, tripMarkers } from '../components/MapView.jsx';
 import { Messages } from '../components/Chat.jsx';
 import { SupportTickets } from '../components/Tickets.jsx';
-import { localEmit, request, setSessionName, useApi, useLive, useOnce } from '../api.js';
+import { localEmit, request, setSessionName, useAction, useApi, useLive, useOnce } from '../api.js';
 import { MAX_CONTACTS, MAX_PLACES, OTP_PENDING, PHONE_PATTERN, RIDE_STATES, STATE_LABEL, TIER_NAME } from '../constants.js';
 
 const RIDE_EVENTS = ['ride:update'];
@@ -39,8 +39,7 @@ function useActiveRide() {
     if (type === 'driver:location' && ride && data.rideId === ride._id) setCar(data);
     if (type === 'deviation:alert' && ride && data.rideId === ride._id) active.reload();
   });
-  const live = car && ride && car.rideId === ride._id ? car : ride?.driver?.location?.lat != null ? { ...ride.driver.location, deviated: ride.deviated } : null;
-  return { ...active, ride, car: live };
+  return { ...active, ride, car: ride && liveCar(ride, car) };
 }
 
 async function cancelRide(ride, onDone) {
@@ -156,6 +155,7 @@ function Dashboard() {
       const [pickup, drop] = await Promise.all([resolvePlace(pickupText.trim(), saved), resolvePlace(dropText.trim(), saved)]);
       const est = await request('/rides/estimate', { method: 'POST', body: { pickup, drop } });
       setTrip({ ...est, pickup, drop });
+      setTier((t) => (est.fares.some((f) => f.id === t) ? t : est.fares[0].id));
     } catch (err) {
       setTrip(null);
       fail(err);
@@ -321,30 +321,15 @@ function RideFeedback({ ride, onDone, onClose }) {
   const [stars, setStars] = useState(0);
   const [feedback, setFeedback] = useState('');
   const [complaint, setComplaint] = useState('');
-  const [msg, setMsg] = useState({ error: '', ok: '' });
-  const [busy, setBusy] = useState(false);
-  const run = async (fn, ok) => {
-    setBusy(true);
-    setMsg({ error: '', ok: '' });
-    try {
-      await fn();
-      setMsg({ error: '', ok });
-      onDone();
-      return true;
-    } catch (err) {
-      setMsg({ error: err.message, ok: '' });
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { run, busy, msg } = useAction();
+  const send = (fn, ok) => run(async () => { await fn(); onDone(); }, ok);
   const rate = (e) => {
     e.preventDefault();
-    if (stars) run(() => request(`/rides/${ride._id}/rate`, { method: 'POST', body: { stars, feedback } }), 'Thanks for rating your driver!');
+    if (stars) send(() => request(`/rides/${ride._id}/rate`, { method: 'POST', body: { stars, feedback } }), 'Thanks for rating your driver!');
   };
   const report = async (e) => {
     e.preventDefault();
-    if (await run(() => request('/complaints', { method: 'POST', body: { ride: ride._id, description: complaint } }), 'Complaint sent to the SheRides team.')) setComplaint('');
+    if (await send(() => request('/complaints', { method: 'POST', body: { ride: ride._id, description: complaint } }), 'Complaint sent to the SheRides team.')) setComplaint('');
   };
   const canRate = ride.status === 'completed' && !ride.myRating;
   return (
@@ -574,23 +559,10 @@ function Notifications() {
 function Profile() {
   const me = useApi('/me');
   const user = me.data?.user;
-  const [msg, setMsg] = useState({ error: '', ok: '' });
   const [place, setPlace] = useState({ label: '', address: '' });
-  const [busy, setBusy] = useState(false);
-  const run = async (fn, ok) => {
-    setBusy(true);
-    setMsg({ error: '', ok: '' });
-    try {
-      me.setData(await fn());
-      setMsg({ error: '', ok });
-      return true;
-    } catch (err) {
-      setMsg({ error: err.message, ok: '' });
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
+  const action = useAction();
+  const { busy, msg } = action;
+  const run = (fn, ok) => action.run(async () => me.setData(await fn()), ok);
   const saveProfile = (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
@@ -691,19 +663,15 @@ export const passenger = {
   sos: true,
   useCounts: usePassengerCounts,
   menu: [
-    { to: '', label: 'Dashboard', icon: 'home' },
-    { to: 'tracking', label: 'Live tracking', icon: 'pin' },
-    { to: 'history', label: 'Ride history', icon: 'clock' },
-    { to: 'messages', label: 'Messages', icon: 'chat' },
-    { to: 'wallet', label: 'Wallet & payments', icon: 'wallet' },
-    { to: 'safety', label: 'Safety centre', icon: 'shield' },
-    { to: 'notifications', label: 'Notifications', icon: 'bell', count: 'unread' },
-    { to: 'support', label: 'Help & support', icon: 'ticket' },
-    { to: 'profile', label: 'Profile', icon: 'user' },
-    { to: 'settings', label: 'Settings', icon: 'gear' },
-  ],
-  routes: [
-    ['', Dashboard], ['tracking', LiveTracking], ['history', History], ['messages', () => <Messages role="passenger" />],
-    ['wallet', Wallet], ['safety', Safety], ['notifications', Notifications], ['support', SupportTickets], ['profile', Profile], ['settings', Settings],
+    { to: '', label: 'Dashboard', icon: 'home', Page: Dashboard },
+    { to: 'tracking', label: 'Live tracking', icon: 'pin', Page: LiveTracking },
+    { to: 'history', label: 'Ride history', icon: 'clock', Page: History },
+    { to: 'messages', label: 'Messages', icon: 'chat', Page: () => <Messages role="passenger" /> },
+    { to: 'wallet', label: 'Wallet & payments', icon: 'wallet', Page: Wallet },
+    { to: 'safety', label: 'Safety centre', icon: 'shield', Page: Safety },
+    { to: 'notifications', label: 'Notifications', icon: 'bell', count: 'unread', Page: Notifications },
+    { to: 'support', label: 'Help & support', icon: 'ticket', Page: SupportTickets },
+    { to: 'profile', label: 'Profile', icon: 'user', Page: Profile },
+    { to: 'settings', label: 'Settings', icon: 'gear', Page: Settings },
   ],
 };
