@@ -86,7 +86,8 @@ p { margin: 0 0 1em; }
 /* ---------- Buttons & inputs ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border: 0; border-radius: 999px; padding: .7rem 1.3rem; font: 600 .95rem var(--sans); cursor: pointer; color: var(--cream); background: rgba(43, 69, 85, .6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: var(--shadow-sm), var(--glass-edge); transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease), background var(--fast) var(--ease), opacity var(--fast); white-space: nowrap; }
 .btn:active { transform: scale(.97); }
-.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+/* Greyscale too: at half opacity a coloured button (e.g. green stand-down) still reads as clickable on the dark theme. */
+.btn:disabled { opacity: .45; filter: grayscale(1); cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-primary { background: var(--grad); color: var(--navy); box-shadow: var(--glow); }
 .btn-ghost { background: rgba(234, 217, 201, .05); border: 1px solid var(--glass-border); box-shadow: var(--glass-edge); }
 .btn-sos { background: var(--sos); color: #fff; box-shadow: 0 8px 22px -8px rgba(229, 56, 59, .8); }
@@ -94,9 +95,9 @@ p { margin: 0 0 1em; }
 .btn-sm { padding: .42rem .9rem; font-size: .82rem; }
 .btn-block { width: 100%; }
 @media (hover: hover) {
-  .btn:hover { transform: translateY(-1px); }
-  .btn-primary:hover { box-shadow: 0 12px 28px -8px rgba(255, 91, 142, .85); }
-  .btn-ghost:hover { background: var(--card-2); }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn-primary:hover:not(:disabled) { box-shadow: 0 12px 28px -8px rgba(255, 91, 142, .85); }
+  .btn-ghost:hover:not(:disabled) { background: var(--card-2); }
 }
 .icon-btn { display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--glass-border); background: rgba(43, 69, 85, .5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: var(--glass-edge); color: var(--cream); cursor: pointer; transition: background var(--fast) var(--ease), transform var(--fast) var(--ease); }
 .icon-btn:active { transform: scale(.94); }
