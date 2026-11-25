@@ -23,7 +23,8 @@ app.set('trust proxy', 1); // req.ip = the visitor's address as reported by the 
 app.use(cors({ origin: ORIGINS }));
 app.use(express.json({ limit: '100kb' }));
 
-app.get('/health', (req, res) => res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' }));
+// dbName lets e2e.mjs refuse to run against a stack that is not on a qa/e2e database.
+app.get('/health', (req, res) => res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down', dbName: mongoose.connection.name }));
 for (const r of [authRoutes, accountRoutes, driverRoutes, reportRoutes, rideRoutes, safetyRoutes, supportRoutes]) app.use(r);
 app.use('/admin', requireRole('admin')); // unknown admin paths: non-admins get 401/403, never a hint of what exists
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

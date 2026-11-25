@@ -4,7 +4,7 @@ import { Badge, Card, Empty, fmtDate, Icon, inr, PageHead, Stars, StarInput, Sta
 import { liveCar, MapView, tripMarkers } from '../components/MapView.jsx';
 import { Messages } from '../components/Chat.jsx';
 import { SupportTickets } from '../components/Tickets.jsx';
-import { localEmit, request, setSessionName, useAction, useApi, useLive, useOnce } from '../api.js';
+import { localEmit, request, setSessionName, useAction, useApi, useLive } from '../api.js';
 import { MAX_CONTACTS, MAX_PLACES, OTP_PENDING, PHONE_PATTERN, RIDE_STATES, STATE_LABEL, TIER_NAME } from '../constants.js';
 
 const RIDE_EVENTS = ['ride:update'];
@@ -144,7 +144,7 @@ function Dashboard() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [needsTopUp, setNeedsTopUp] = useState(false);
-  const [once] = useOnce();
+  const { run: once } = useAction();
   const fail = (err) => { setError(err.message); setNeedsTopUp(err.status === 402); };
 
   const search = (e) => { e.preventDefault(); once(doSearch); };
@@ -168,7 +168,8 @@ function Dashboard() {
     setBusy('book');
     setError('');
     try {
-      await request('/rides', { method: 'POST', body: { pickup: trip.pickup, drop: trip.drop, tier } });
+      const fare = trip.fares.find((f) => f.id === tier).fare;
+      await request('/rides', { method: 'POST', body: { pickup: trip.pickup, drop: trip.drop, tier, fare } });
       setTrip(null);
       setPickupText('');
       setDropText('');
@@ -176,6 +177,7 @@ function Dashboard() {
       meApi.reload();
     } catch (err) {
       fail(err);
+      if (err.status === 409) setTrip(null); // the shown price is stale (or a ride is already active): search again
     }
     setBusy('');
   };
@@ -391,7 +393,7 @@ function Wallet() {
   const { data, loading, error, setData } = useApi('/wallet', { on: RIDE_EVENTS });
   const [amount, setAmount] = useState(500);
   const [msg, setMsg] = useState('');
-  const [once, busy] = useOnce();
+  const { run: once, busy } = useAction();
   const topUp = (e) => {
     e.preventDefault();
     once(async () => {
@@ -453,7 +455,7 @@ function Safety() {
   const blank = { name: '', relation: '', phone: '', email: '' };
   const [form, setForm] = useState(blank);
   const [error, setError] = useState('');
-  const [once, adding] = useOnce();
+  const { run: once, busy: adding } = useAction();
   const save = async (fn) => {
     setError('');
     try {

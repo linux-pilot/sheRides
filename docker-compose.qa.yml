@@ -1,0 +1,25 @@
+# Isolated stack for server/e2e.mjs: own project, network, database (sherides_qa) and upload folder, no host ports,
+# so it can run next to the dev stack without touching its data. Steps are at the top of server/e2e.mjs.
+name: sherides-qa
+
+services:
+  mongo:
+    image: mongo:7
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+
+  server:
+    build: ./server
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/sherides_qa
+      - JWT_SECRET=qa-only-secret-never-used-for-real-data # test value for this throwaway stack
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - UPLOAD_DIR=/tmp/qa-uploads # seed.js wipes the upload folder: keep the dev server/uploads out of reach
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    depends_on:
+      - mongo
+      - mailpit

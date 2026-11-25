@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ErrorBoundary, Icon, Logo } from './ui.jsx';
 import { SosModal } from './SosModal.jsx';
-import { getSession, signOut, useLive } from '../api.js';
+import { getSession, signOut, useApi, useLive } from '../api.js';
 
 const noCounts = () => ({});
 
@@ -48,6 +48,9 @@ export function Shell({ role, base, menu, sos = false, useCounts = noCounts, Bac
   const counts = useCounts();
   const [open, setOpen] = useState(false);
   const [sosOpen, setSosOpen] = useState(false);
+  // An SOS still active after a reload or closed tab reopens the modal (it re-attaches, no new alert) so she can stand it down.
+  const activeSos = useApi(sos ? '/sos/active' : null);
+  useEffect(() => { if (activeSos.data) setSosOpen(true); }, [activeSos.data]);
   const { pathname } = useLocation();
 
   useEffect(() => { setOpen(false); }, [pathname]);

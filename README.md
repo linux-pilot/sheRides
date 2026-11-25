@@ -175,6 +175,16 @@ docker compose run --rm server node test.js
 Covers role middleware, JWT checks, input validation, upload type detection, fare calculation, OTP,
 route-deviation distance and the geo-fence.
 
+End-to-end API checks (booking, OTP, wallet, SOS, deviation, roles) run against a separate throwaway stack with its
+own database, so they never touch your demo data:
+
+```bash
+docker compose -f docker-compose.qa.yml up -d --build server
+docker compose -f docker-compose.qa.yml run --rm server node seed.js --yes
+docker compose -f docker-compose.qa.yml run --rm server node e2e.mjs
+docker compose -f docker-compose.qa.yml down -v   # remove it afterwards
+```
+
 ## Demo-scale stand-ins (`ponytail:` comments in code)
 
 Mock wallet top-up (→ Razorpay), mock police call and masked calling (→ Twilio), public OSRM demo server

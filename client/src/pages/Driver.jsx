@@ -4,7 +4,7 @@ import { Badge, Bars, Card, Empty, fmtDate, Icon, inr, PageHead, Stars, Stat, To
 import { liveCar, MapView, tripMarkers } from '../components/MapView.jsx';
 import { Messages } from '../components/Chat.jsx';
 import { SupportTickets } from '../components/Tickets.jsx';
-import { liveSend, openFile, request, uploadDocument, useAction, useApi, useLive, useOnce } from '../api.js';
+import { liveSend, openFile, request, uploadDocument, useAction, useApi, useLive } from '../api.js';
 import {
   KYC_TYPES, MONITORED, NEXT_STATUS, PAST, RIDE_STATES, STATE_LABEL, TIER_NAME, UPLOAD_ACCEPT, UPLOAD_HINT, uploadError,
 } from '../constants.js';
@@ -26,7 +26,7 @@ function Dashboard() {
   const requests = useApi(online && approved && !current.data ? '/driver/requests' : null, { on: ['ride:request'] });
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
-  const [once] = useOnce();
+  const { run: once } = useAction();
 
   const setOnline = async (on) => {
     setError('');
@@ -185,7 +185,7 @@ function Trip() {
   const [car, setCar] = useState(null);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
-  const [once, busy] = useOnce();
+  const { run: once, busy } = useAction();
   const [finished, setFinished] = useState(null);
   const sim = useSimulator(ride, setCar);
 

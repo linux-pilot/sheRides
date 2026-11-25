@@ -98,7 +98,8 @@ export function SosModal({ role, onClose }) {
             <Badge value="cancelled" label="Calling…" />
           </li>
         </ul>
-        <button className="btn btn-ok btn-block" style={{ marginTop: '1.2rem' }} onClick={standDown} disabled={busy} autoFocus>
+        {/* Locked while sending: closing before the alert exists would let it go out with no stand-down. */}
+        <button className="btn btn-ok btn-block" style={{ marginTop: '1.2rem' }} onClick={standDown} disabled={busy || (!sos && !error)} autoFocus>
           <Icon name="check" /> I am safe — stand down
         </button>
       </div>

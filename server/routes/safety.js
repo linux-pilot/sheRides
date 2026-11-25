@@ -91,12 +91,24 @@ router.get('/admin/sos', requireRole('admin'), async (req, res) => {
     .sort({ status: 1, triggeredAt: -1 }).limit(200));
 });
 
-// WebSocket `sos:location`: keep the active SOS's location current for the control room.
+// WebSocket `sos:location`: keep the active SOS's location current for the control room. If the SOS went out without
+// a location (browser too slow, not on a ride), the first fix is also emailed to the passenger's emergency contacts.
 export async function sosLocation(auth, data) {
   if (!OWNER_FIELD[auth.role]) throw new HttpError(403, 'Only passengers and drivers raise SOS');
   const location = validate(data, POINT);
-  const sos = await SosAlert.findOneAndUpdate({ ...ownSos(auth), status: 'active' }, { location }, { new: true });
-  if (sos) emitRole('admin', 'sos:location', { id: String(sos._id), location });
+  // Returns the alert as it was BEFORE this update, so exactly one update sees "no location yet".
+  const before = await SosAlert.findOneAndUpdate({ ...ownSos(auth), status: 'active' }, { location });
+  if (!before) return;
+  emitRole('admin', 'sos:location', { id: String(before._id), location });
+  const passenger = before.location?.lat == null && before.user && (await User.findById(before.user));
+  if (passenger) {
+    mailContacts(passenger, `URGENT: location for ${passenger.name}'s SOS`, [
+      `${passenger.name}'s SOS is still active. Her location is now known:`,
+      mapLink(location),
+      '',
+      'The SheRides control room has been alerted. If you cannot reach her, call 112.',
+    ].join('\n'));
+  }
 }
 
 export default router;

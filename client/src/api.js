@@ -143,26 +143,17 @@ export function useApi(path, { on = [] } = {}) {
   return { ...state, reload, setData };
 }
 
-// Runs one async action at a time: a double click or double Enter is ignored instead of submitting twice.
-// (A `disabled` flag alone is too late: both clicks can land before React re-renders.)
-export function useOnce() {
-  const lock = useRef(false);
-  const [busy, setBusy] = useState(false);
-  const run = useCallback(async (fn) => {
-    if (lock.current) return undefined;
-    lock.current = true;
-    setBusy(true);
-    try { return await fn(); } finally { lock.current = false; setBusy(false); }
-  }, []);
-  return [run, busy];
-}
-
-// One async action with a busy flag and an { error, ok } message. run(fn, okText) resolves to fn's result
-// (true if it returned nothing), or false if it threw.
+// One async action at a time, with a busy flag and an { error, ok } message. A double click or double Enter is
+// ignored instead of submitting twice (a `disabled` flag alone is too late: both clicks can land before React
+// re-renders). run(fn, okText) resolves to fn's result (true if it returned nothing), or false if it threw or
+// another run was still going.
 export function useAction() {
+  const lock = useRef(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState({ error: '', ok: '' });
   const run = useCallback(async (fn, ok = '') => {
+    if (lock.current) return false;
+    lock.current = true;
     setBusy(true);
     setMsg({ error: '', ok: '' });
     try {
@@ -173,6 +164,7 @@ export function useAction() {
       setMsg({ error: err.message, ok: '' });
       return false;
     } finally {
+      lock.current = false;
       setBusy(false);
     }
   }, []);

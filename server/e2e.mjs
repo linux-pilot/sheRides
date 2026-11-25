@@ -1,15 +1,19 @@
 // End-to-end API checks against a running, ISOLATED SheRides stack. Never point this at real data:
-// it creates accounts, rides, SOS alerts and emails. It refuses unless MONGO_URL names a qa/e2e database.
-//   docker compose -f <qa compose> run --rm server node e2e.mjs [section …]   (API sections 1, 2, 3, 5; 4 is the browser pass)
+// it creates accounts, rides, SOS alerts and emails. It refuses unless the API it talks to uses a qa/e2e database.
+//   docker compose -f docker-compose.qa.yml up -d --build server
+//   docker compose -f docker-compose.qa.yml run --rm server node seed.js --yes
+//   docker compose -f docker-compose.qa.yml run --rm server node e2e.mjs [section …]   (API sections 1, 2, 3, 5; 4 is the browser pass)
 // Env: E2E_API (default http://server:5000), MAILPIT (default http://mailpit:8025).
 import WebSocket from 'ws';
 
-if (!/sherides_(qa|e2e)\b/.test(process.env.MONGO_URL || '')) {
-  console.error(`Refusing to run: MONGO_URL (${process.env.MONGO_URL}) is not a qa/e2e database.`);
-  process.exit(2);
-}
 const API = process.env.E2E_API || 'http://server:5000';
 const MAILPIT = process.env.MAILPIT || 'http://mailpit:8025';
+// Ask the server itself: this script never touches Mongo, so its own MONGO_URL says nothing about where data lands.
+const { dbName } = await fetch(`${API}/health`).then((r) => r.json()).catch(() => ({}));
+if (!/^sherides_(qa|e2e)$/.test(dbName || '')) {
+  console.error(`Refusing to run: the API at ${API} uses database "${dbName ?? 'unknown'}", not a qa/e2e one.`);
+  process.exit(2);
+}
 const ORIGIN = (process.env.CLIENT_ORIGIN || 'http://localhost:3000').split(',')[0].trim();
 const PW = 'SheRides@123';
 const uniq = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -78,7 +82,12 @@ async function newDriver({ approve = true, online = true } = {}) {
 // Ahmedabad places inside the service area (the geo-fence applies to every ride, all day).
 const NAV = { address: 'CG Road, Navrangpura', lat: 23.0365, lng: 72.5611 };
 const VAS = { address: 'Vastrapur Lake', lat: 23.0396, lng: 72.5293 };
-const book = (p, tier = 'lite', pickup = NAV, drop = VAS) => api('POST', '/rides', { token: p.token, body: { pickup, drop, tier } });
+// Books at the price the estimate quoted, like the site does (0 when the estimate itself is refused).
+const book = async (p, tier = 'lite', pickup = NAV, drop = VAS) => {
+  const est = await api('POST', '/rides/estimate', { token: p.token, body: { pickup, drop } });
+  const fare = est.body.fares?.find((f) => f.id === tier)?.fare ?? 0;
+  return api('POST', '/rides', { token: p.token, body: { pickup, drop, tier, fare } });
+};
 const BAD_ID = '64b7f0000000000000000000';
 
 // ======================= 1. Auth, roles, input validation =======================
@@ -276,6 +285,8 @@ async function section2() {
   is('book to outside the fence → 400', await book(p, 'lite', NAV, NADIAD), 400);
   is('book from outside the fence → 400', await book(p, 'lite', NADIAD, NAV), 400);
   is('book retired Night Guardian tier → 400', await book(p, 'night'), 400);
+  r = await api('POST', '/rides', { token: p.token, body: { pickup: NAV, drop: VAS, tier: 'lite', fare: 1 } });
+  check('book at a price other than the current fare → 409 naming the new fare', r.status === 409 && /fare for this trip is now ₹\d+/.test(r.body.error), r.body);
   r = await api('GET', '/rides/active', { token: p.token });
   check('rejected bookings left no active ride', r.status === 200 && r.body === null, r.body);
   is('book unknown tier → 400', await book(p, 'helicopter'), 400);
@@ -613,6 +624,17 @@ async function section3() {
   // SOS with no ride and no contacts still works
   r = await api('POST', '/sos', { token: Q.token, body: {} });
   check('SOS with no ride, no location → 201', r.status === 201 && !r.body.ride, r.body);
+  await api('POST', `/sos/${r.body._id}/resolve`, { token: Q.token });
+
+  // SOS sent before the browser found her: the first live fix is emailed to contacts, once
+  const qKin = `qkin_${uniq()}@qa.test`;
+  await api('POST', '/me/contacts', { token: Q.token, body: { name: 'Q Kin', relation: 'Sister', phone: '+91 90000 66666', email: qKin } });
+  r = await api('POST', '/sos', { token: Q.token, body: {} });
+  ws.Q.send('sos:location', { lat: 23.041, lng: 72.561 }); await sleep(400);
+  ws.Q.send('sos:location', { lat: 23.042, lng: 72.562 }); await sleep(400);
+  const firstFix = await mailsWhen(qKin, /URGENT: location for/);
+  check('first SOS location emailed to contacts exactly once', firstFix.length === 1 && (await mailBody(firstFix[0])).includes('23.041'), firstFix.length);
+  check('SOS raised with a location sends no extra location email', (await mailsTo(kin[0], /URGENT: location for/)).length === 0);
   await api('POST', `/sos/${r.body._id}/resolve`, { token: Q.token });
 
   // Finish the trip: completion + cancellation emails, chat closes

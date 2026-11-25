@@ -108,8 +108,11 @@ router.post('/rides/estimate', passenger, async (req, res) => {
 
 router.post('/rides', passenger, async (req, res) => {
   const trip = await readTrip(req.body);
-  const { tier } = validate(req.body, { tier: { required: true, oneOf: TIER_IDS } });
+  // `fare`: the price she was shown. The route is planned again here, so if it came out different (e.g. the road
+  // router was down for the estimate), she must see the new price before paying it.
+  const { tier, fare: quoted } = validate(req.body, { tier: { required: true, oneOf: TIER_IDS }, fare: { required: true, type: 'integer' } });
   const fare = fareFor(tier, trip.km);
+  if (quoted !== fare) throw new HttpError(409, `The fare for this trip is now ${inr(fare)} (you were shown ${inr(quoted)}). Search again to see the new price.`);
   const user = await User.findById(req.auth.id);
   if (user.walletBalance < fare) throw new HttpError(402, `Wallet balance is ${inr(user.walletBalance)}. Top up at least ${inr(fare - user.walletBalance)} to book this ride.`);
 
@@ -289,7 +292,9 @@ export async function driverLocation(auth, data) {
   let { deviated } = ride;
   let offM = 0;
   let flipped = false;
-  if (MONITORED_STATUSES.includes(ride.status)) {
+  // A 2-point route is the straight-line fallback (road router down at booking): real roads stray far from it, so
+  // checking it would raise false alerts. Road routes from OSRM have many points.
+  if (MONITORED_STATUSES.includes(ride.status) && ride.route?.length > 2) {
     offM = Math.round(distanceToPathM(loc, ride.route));
     deviated = offM > DEVIATION_M;
     // Flip the flag atomically so a burst of GPS points raises exactly one alert.

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Empty, Icon, PageHead } from './ui.jsx';
-import { request, ROLE_HOME, useApi, useLive, useOnce } from '../api.js';
+import { request, ROLE_HOME, useAction, useApi, useLive } from '../api.js';
 
 // Masked chat with the other person on the current trip. Phone numbers are never exchanged.
 // ponytail: "Masked call" is a demo button; upgrade path is Twilio number proxying.
@@ -12,7 +12,7 @@ export function Messages({ role }) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const end = useRef(null);
-  const [once, sending] = useOnce();
+  const { run: once, busy: sending } = useAction();
 
   useLive(({ type, data }) => {
     if (type === 'chat:message' && ride && data.ride === ride._id) {

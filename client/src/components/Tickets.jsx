@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Badge, Card, Empty, fmtDate, PageHead } from './ui.jsx';
-import { request, useApi, useOnce } from '../api.js';
+import { request, useAction, useApi } from '../api.js';
 import { TICKET_CATEGORIES } from '../constants.js';
 
 export function SupportTickets() {
@@ -8,7 +8,7 @@ export function SupportTickets() {
   const blank = { subject: '', category: 'Ride', message: '' };
   const [form, setForm] = useState(blank);
   const [msg, setMsg] = useState('');
-  const [once, sending] = useOnce();
+  const { run: once, busy: sending } = useAction();
   const submit = (e) => {
     e.preventDefault();
     once(async () => {
