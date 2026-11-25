@@ -42,7 +42,7 @@ export function Icon({ name, size = 20 }) {
 export function Logo({ to = '/' }) {
   return (
     <Link to={to} className="logo">
-      <span className="logo-mark"><Icon name="shield" size={18} /></span>
+      <span className="logo-mark" aria-hidden="true" />
       SheRides
     </Link>
   );

@@ -17,6 +17,7 @@ server/uploads
 *.jpg
 *.jpeg
 *.png
+!client/public/*.png
 CLAUDE.md
 QA_REPORT.md
 .claude/
